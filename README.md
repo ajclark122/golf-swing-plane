@@ -1,4 +1,4 @@
-# Golf Camera Lines (iPhone)
+# Simple Golf Alignment App (iPhone)
 
 Single-page web app that shows the iPhone **front camera** and lets you add/move/delete multiple alignment lines over the live video.
 

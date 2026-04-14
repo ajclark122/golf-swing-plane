@@ -1214,9 +1214,11 @@ function autoProposePlaneLine(keypoints) {
     // to the ankle midpoint (which only works well for mid-irons).
     //
     // MoveNet kp 15 = player's left ankle; kp 16 = player's right ankle.
-    // Right-handed golfer → left ankle is lead; left-handed → right ankle is lead.
+    // Anatomically, RH → lead is left ankle, LH → lead is right — but the live
+    // feed is mirrored (scaleX(-1)), so the UI R/L mapping is inverted vs raw
+    // keypoint indices. Swap here so the on-screen R/L buttons match feel.
     const isRightHanded = state.handedness === "right";
-    const leadKp = isRightHanded ? (laOk ? la : ra) : (raOk ? ra : la);
+    const leadKp = isRightHanded ? (raOk ? ra : la) : (laOk ? la : ra);
     const ankleO = toO(leadKp);
 
     // In overlay space y=0 is the TOP (head) and y=1 is the BOTTOM (feet).

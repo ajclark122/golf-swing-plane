@@ -24,17 +24,17 @@ const SWING_PLANE_COLOR = "#ffd44d";
  * Longer clubs are shallower (smaller angle); wedges are steepest.
  */
 const CLUBS = [
-  { id: "1w", label: "Driver",  lieAngle: 58   },
-  { id: "3w", label: "3 Wood",  lieAngle: 56   },
-  { id: "5w", label: "5 Wood",  lieAngle: 58   },
-  { id: "hy", label: "Hybrid",  lieAngle: 60   },
-  { id: "3i", label: "3 Iron",  lieAngle: 60   },
-  { id: "4i", label: "4 Iron",  lieAngle: 61   },
-  { id: "5i", label: "5 Iron",  lieAngle: 62   },
-  { id: "6i", label: "6 Iron",  lieAngle: 62.5 },
-  { id: "7i", label: "7 Iron",  lieAngle: 63   },
-  { id: "8i", label: "8 Iron",  lieAngle: 63.5 },
-  { id: "9i", label: "9 Iron",  lieAngle: 64   },
+  { id: "1w", label: "Dr",  lieAngle: 58   },
+  { id: "3w", label: "3W",  lieAngle: 56   },
+  { id: "5w", label: "5W",  lieAngle: 58   },
+  { id: "hy", label: "HY",  lieAngle: 60   },
+  { id: "3i", label: "3I",  lieAngle: 60   },
+  { id: "4i", label: "4I",  lieAngle: 61   },
+  { id: "5i", label: "5I",  lieAngle: 62   },
+  { id: "6i", label: "6I",  lieAngle: 62.5 },
+  { id: "7i", label: "7I",  lieAngle: 63   },
+  { id: "8i", label: "8I",  lieAngle: 63.5 },
+  { id: "9i", label: "9I",  lieAngle: 64   },
   { id: "pw", label: "PW",      lieAngle: 64   },
   { id: "gw", label: "GW",      lieAngle: 64   },
   { id: "sw", label: "SW",      lieAngle: 64   },
@@ -105,6 +105,7 @@ const state = {
     swingCompleted: false,
     summaryTimerHandle: /** @type {ReturnType<typeof setTimeout>|null} */ (null),
     frameGuide:    /** @type {null|"step-back"|"step-closer"|"raise-club"} */ (null),
+    shoulderNy:    /** @type {number|null} */ (null), // EMA-smoothed shoulder height at address
   },
 };
 
@@ -1026,6 +1027,7 @@ function resetPoseState() {
   state.pose.backswingLevelLog = [];
   state.pose.downswingLevelLog = [];
   state.pose.swingCompleted = false;
+  state.pose.shoulderNy     = null;
   dismissSwingSummary();
 }
 
@@ -1180,16 +1182,33 @@ async function runPoseInference() {
     state.pose.frameGuide = null;
   }
 
-  // ── Stable-frame counter + continuous EMA auto-proposal ──────────────────
+  // ── Stable-frame counter, shoulder tracking + continuous plane line proposal ─
   if (newPhase === "address") {
     state.pose.stableFrames++;
     autoProposePlaneLine(kps); // every frame; EMA-smoothed inside the function
+
+    // Track shoulder height so the assessment gate knows when hands pass shoulder level.
+    const ls = kps[5], rs = kps[6];
+    const SHOULDER_CONF = 0.35;
+    const shoulderPts = [ls, rs].filter((k) => k && k.score >= SHOULDER_CONF);
+    if (shoulderPts.length > 0) {
+      const avgNy = shoulderPts.reduce((s, k) => s + movenetToOverlay(k.x, k.y).ny, 0) / shoulderPts.length;
+      // Slow EMA — shoulders barely move at address, so this stabilises quickly.
+      state.pose.shoulderNy = state.pose.shoulderNy === null
+        ? avgNy
+        : state.pose.shoulderNy * 0.92 + avgNy * 0.08;
+    }
   } else {
     state.pose.stableFrames = 0;
   }
 
-  // ── Plane assessment (Side view only, active phases only) ─────────────────
-  if (state.view === "side" && newPhase !== "address") {
+  // ── Plane assessment (side view, active swing only, hands above shoulder) ──
+  // Only meaningful once the hands have clearly risen past the shoulders; before
+  // that any "above/below" reading is noise from a small address waggle.
+  const handsAboveShoulder = state.pose.shoulderNy !== null
+    && handsNorm.y < state.pose.shoulderNy;
+
+  if (state.view === "side" && newPhase !== "address" && handsAboveShoulder) {
     assessPlane(handsNorm.x, handsNorm.y);
   } else {
     state.pose.planeResult = null;
@@ -1309,8 +1328,18 @@ function autoProposePlaneLine(keypoints) {
     handsNx = o.nx; handsNy = o.ny;
   }
 
+  // Estimate ground level from ankle keypoints; fall back to the GROUND_Y constant.
+  // Only the Y coordinate is used here — the ankles tell us where the feet are in
+  // the frame, which is the actual ground reference, regardless of camera distance.
+  const la = keypoints[15], ra = keypoints[16];
+  const ANKLE_CONF = 0.30;
+  const anklePoints = [la, ra].filter((k) => k && k.score >= ANKLE_CONF);
+  const groundNy = anklePoints.length > 0
+    ? anklePoints.reduce((s, k) => s + movenetToOverlay(k.x, k.y).ny, 0) / anklePoints.length
+    : GROUND_Y;
+
   // Hands must be above the ground reference; otherwise the frame isn't usable.
-  if (handsNy >= GROUND_Y - 0.05) return;
+  if (handsNy >= groundNy - 0.05) return;
 
   const club = CLUBS.find((c) => c.id === state.selectedClub) ?? CLUBS[8]; // default 7i
   const θ    = club.lieAngle * Math.PI / 180;
@@ -1319,31 +1348,31 @@ function autoProposePlaneLine(keypoints) {
   const sign = state.handedness === "right" ? -1 : 1;
 
   // Unit vector from hands toward club head (downward along shaft)
-  const ux =  sign * Math.cos(θ);  // horizontal component (left or right)
-  const uy =  Math.sin(θ);         // vertical component (always downward, +y)
+  const ux = sign * Math.cos(θ);  // horizontal component (left or right)
+  const uy = Math.sin(θ);         // vertical component (always downward, +y)
 
-  // Club head: follow shaft from hands down to GROUND_Y
-  const tGround  = (GROUND_Y - handsNy) / uy;
+  // Club head: follow shaft from hands down to the ankle-derived ground level
+  const tGround   = (groundNy - handsNy) / uy;
   const clubHeadX = clamp01(handsNx + ux * tGround);
 
   // Top of line: extend shaft upward from hands to topY
   const topY = 0.10;
-  const tTop  = (handsNy - topY) / uy;
-  const topX  = clamp01(handsNx - ux * tTop);
+  const tTop = (handsNy - topY) / uy;
+  const topX = clamp01(handsNx - ux * tTop);
 
   // EMA blend (α = 0.25 → settles in ~4 frames ≈ 0.4 s at 10 pose-fps)
   const EMA = 0.25;
   const cur = state.swingPlaneLine.line;
 
   if (state.pose.stableFrames <= 1) {
-    state.swingPlaneLine.line = { ...cur, x1: topX, y1: topY, x2: clubHeadX, y2: GROUND_Y };
+    state.swingPlaneLine.line = { ...cur, x1: topX, y1: topY, x2: clubHeadX, y2: groundNy };
   } else {
     state.swingPlaneLine.line = {
       ...cur,
       x1: cur.x1 + (topX      - cur.x1) * EMA,
       y1: topY,
       x2: cur.x2 + (clubHeadX - cur.x2) * EMA,
-      y2: GROUND_Y,
+      y2: cur.y2 + (groundNy  - cur.y2) * EMA,
     };
   }
 

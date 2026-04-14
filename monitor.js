@@ -1,66 +1,53 @@
 import { createPeerConnection, decodeSignal, encodeSignal, waitForIceGatheringComplete } from "./webrtc-signaling.js";
 
+// ── DOM refs ───────────────────────────────────────────────────────────────────
+
 const el = {
-  status: /** @type {HTMLDivElement} */ (document.getElementById("monitorStatus")),
-  liveIcon: /** @type {HTMLDivElement} */ (document.getElementById("liveIcon")),
-  liveMeta: /** @type {HTMLDivElement} */ (document.getElementById("liveMeta")),
-  backIcon: /** @type {HTMLDivElement} */ (document.getElementById("backIcon")),
-  backMeta: /** @type {HTMLDivElement} */ (document.getElementById("backMeta")),
-  downIcon: /** @type {HTMLDivElement} */ (document.getElementById("downIcon")),
-  downMeta: /** @type {HTMLDivElement} */ (document.getElementById("downMeta")),
+  status:    /** @type {HTMLDivElement}    */ (document.getElementById("monitorStatus")),
+  liveIcon:  /** @type {HTMLDivElement}    */ (document.getElementById("liveIcon")),
+  liveMeta:  /** @type {HTMLDivElement}    */ (document.getElementById("liveMeta")),
+  backIcon:  /** @type {HTMLDivElement}    */ (document.getElementById("backIcon")),
+  backMeta:  /** @type {HTMLDivElement}    */ (document.getElementById("backMeta")),
+  downIcon:  /** @type {HTMLDivElement}    */ (document.getElementById("downIcon")),
+  downMeta:  /** @type {HTMLDivElement}    */ (document.getElementById("downMeta")),
 
-  btnScanOffer: /** @type {HTMLButtonElement} */ (document.getElementById("btnScanOffer")),
-  btnPasteOffer: /** @type {HTMLButtonElement} */ (document.getElementById("btnPasteOffer")),
-  btnStopScan: /** @type {HTMLButtonElement} */ (document.getElementById("btnStopScan")),
-  btnUseOffer: /** @type {HTMLButtonElement} */ (document.getElementById("btnUseOffer")),
-  btnCopyAnswer: /** @type {HTMLButtonElement} */ (document.getElementById("btnCopyAnswer")),
-  btnResetPair: /** @type {HTMLButtonElement} */ (document.getElementById("btnResetPair")),
-
-  paneScanner: /** @type {HTMLDivElement} */ (document.getElementById("paneScanner")),
-  panePaste: /** @type {HTMLDivElement} */ (document.getElementById("panePaste")),
-  paneAnswer: /** @type {HTMLDivElement} */ (document.getElementById("paneAnswer")),
-  qrReader: /** @type {HTMLDivElement} */ (document.getElementById("qrReader")),
-
-  offerText: /** @type {HTMLTextAreaElement} */ (document.getElementById("offerText")),
-  answerQr: /** @type {HTMLDivElement} */ (document.getElementById("answerQr")),
-  answerText: /** @type {HTMLTextAreaElement} */ (document.getElementById("answerText")),
+  pairIdle:      /** @type {HTMLDivElement}      */ (document.getElementById("pairIdle")),
+  pairAnswer:    /** @type {HTMLDivElement}      */ (document.getElementById("pairAnswer")),
+  answerHint:    /** @type {HTMLDivElement}      */ (document.getElementById("answerHint")),
+  panePaste:     /** @type {HTMLDivElement}      */ (document.getElementById("panePaste")),
+  offerText:     /** @type {HTMLTextAreaElement} */ (document.getElementById("offerText")),
+  btnPasteOffer: /** @type {HTMLButtonElement}   */ (document.getElementById("btnPasteOffer")),
+  btnUseOffer:   /** @type {HTMLButtonElement}   */ (document.getElementById("btnUseOffer")),
+  btnShareAnswer:/** @type {HTMLButtonElement}   */ (document.getElementById("btnShareAnswer")),
+  btnCopyAnswer: /** @type {HTMLButtonElement}   */ (document.getElementById("btnCopyAnswer")),
+  btnResetPair:  /** @type {HTMLButtonElement}   */ (document.getElementById("btnResetPair")),
+  btnResetPair2: /** @type {HTMLButtonElement}   */ (document.getElementById("btnResetPair2")),
 };
+
+// ── State ──────────────────────────────────────────────────────────────────────
 
 /** @type {RTCPeerConnection|null} */
 let pc = null;
 /** @type {RTCDataChannel|null} */
 let dc = null;
-/** @type {any|null} */
-let qr = null;
 
-function setStatus(msg) {
-  el.status.textContent = msg;
-}
+/** Encoded answer string, stored so Share and Copy both use the same value. */
+let answerEncoded = "";
 
-function hintForError(e) {
-  const msg = e instanceof Error ? e.message : String(e || "");
-  if (/camera|permission|NotAllowedError|Permission/i.test(msg)) return "Allow camera access in Safari settings, then try again.";
-  if (/No camera|NotFoundError/i.test(msg)) return "No camera found. Make sure Safari has camera access.";
-  if (/Invalid/i.test(msg)) return "Rescan, or use Copy on iPhone and Paste here (must be the full text).";
-  return "Try again with more light and hold steady.";
-}
+// ── Status / tile helpers ──────────────────────────────────────────────────────
 
-function hideAllPanes() {
-  el.paneScanner.hidden = true;
-  el.panePaste.hidden = true;
-  el.paneAnswer.hidden = true;
-}
+function setStatus(msg) { el.status.textContent = msg; }
 
 function planeToIcon(plane) {
   if (plane === "above") return "▲";
-  if (plane === "on") return "●";
+  if (plane === "on")    return "●";
   if (plane === "below") return "▽";
   return "—";
 }
 
 function planeToLabel(plane) {
   if (plane === "above") return "Above plane";
-  if (plane === "on") return "On plane";
+  if (plane === "on")    return "On plane";
   if (plane === "below") return "Below plane";
   return "—";
 }
@@ -71,76 +58,99 @@ function phaseToLabel(phase) {
 }
 
 function applyLiveUpdate(msg) {
-  const phase = msg?.phase ?? null;
-  const plane = msg?.plane ?? null;
-
-  el.liveIcon.textContent = planeToIcon(plane);
-  el.liveMeta.textContent = `${phaseToLabel(phase)} · ${planeToLabel(plane)}`;
+  el.liveIcon.textContent = planeToIcon(msg?.plane ?? null);
+  el.liveMeta.textContent = `${phaseToLabel(msg?.phase)} · ${planeToLabel(msg?.plane ?? null)}`;
 }
 
 function applySummary(msg) {
   el.backIcon.textContent = planeToIcon(msg?.backswingDominant ?? null);
   el.backMeta.textContent = planeToLabel(msg?.backswingDominant ?? null);
-
   el.downIcon.textContent = planeToIcon(msg?.downswingDominant ?? null);
   el.downMeta.textContent = planeToLabel(msg?.downswingDominant ?? null);
 }
 
+// ── WebRTC ─────────────────────────────────────────────────────────────────────
+
 function attachDataChannel(channel) {
   dc = channel;
-  dc.onopen = () => setStatus("Paired (receiving)");
-  dc.onclose = () => setStatus("Disconnected");
-  dc.onerror = () => setStatus("Data channel error");
+  dc.onopen    = () => setStatus("Paired — receiving data");
+  dc.onclose   = () => setStatus("Disconnected");
+  dc.onerror   = () => setStatus("Data channel error");
   dc.onmessage = (e) => {
     try {
       const msg = JSON.parse(String(e.data));
       if (msg?.type === "summary") applySummary(msg);
       else applyLiveUpdate(msg);
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore malformed */ }
   };
 }
 
-function resetAll() {
-  try { dc?.close(); } catch { /* ignore */ }
-  try { pc?.close(); } catch { /* ignore */ }
-  dc = null;
-  pc = null;
-  stopScanner();
-  hideAllPanes();
-  setStatus("Not paired");
-  el.offerText.value = "";
-  el.answerText.value = "";
-  el.liveIcon.textContent = "—";
-  el.liveMeta.textContent = "Waiting…";
-}
-
-async function ensurePeer() {
+function ensurePeer() {
   if (pc) return pc;
   pc = createPeerConnection();
   pc.onconnectionstatechange = () => {
     const s = pc?.connectionState;
-    if (s === "connected") setStatus("Paired (connected)");
+    if (s === "connected")                      setStatus("Paired — receiving data");
     else if (s === "disconnected" || s === "failed") setStatus("Disconnected");
   };
   pc.ondatachannel = (ev) => attachDataChannel(ev.channel);
   return pc;
 }
 
-async function useOfferText(text) {
+function resetAll() {
+  try { dc?.close(); } catch { /* ignore */ }
+  try { pc?.close(); } catch { /* ignore */ }
+  dc = null; pc = null;
+  answerEncoded = "";
+  showIdlePane();
+  setStatus("Not paired");
+  el.offerText.value = "";
+  el.liveIcon.textContent = "—"; el.liveMeta.textContent = "Waiting…";
+}
+
+// ── Pairing UI helpers ─────────────────────────────────────────────────────────
+
+function showIdlePane() {
+  el.pairIdle.hidden   = false;
+  el.pairAnswer.hidden = true;
+  el.panePaste.hidden  = true;
+}
+
+function showAnswerPane(hint) {
+  el.pairIdle.hidden   = true;
+  el.pairAnswer.hidden = false;
+  el.answerHint.textContent = hint;
+}
+
+// ── Core signaling logic ───────────────────────────────────────────────────────
+
+/**
+ * Process a raw offer string (either the raw encoded token extracted from a
+ * hash/URL, or the full monitor.html URL containing #o=…).
+ */
+async function processOfferText(raw) {
+  const trimmed = raw.trim();
+
+  // Accept a full URL — extract just the hash param.
+  let encoded = trimmed;
+  try {
+    const u = new URL(trimmed);
+    const hash = u.hash; // e.g. "#o=abc123"
+    if (hash.startsWith("#o=")) encoded = hash.slice(3);
+  } catch { /* not a URL — treat as raw encoded token */ }
+
+  if (!encoded) throw new Error("Empty offer — copy the full link from iPhone");
+
   let offer;
   try {
-    offer = decodeSignal(text);
-  } catch (e) {
-    throw new Error("Invalid text. Paste the long text from the iPhone pairing screen.");
+    offer = await decodeSignal(encoded);
+  } catch {
+    throw new Error("Couldn't decode offer — copy the full link from iPhone");
   }
-  if (!offer?.type || !offer?.sdp) throw new Error("Invalid QR/text. Rescan or use Copy/Paste from iPhone.");
+  if (!offer?.type || !offer?.sdp) throw new Error("Invalid offer");
 
-  hideAllPanes();
-  setStatus("Creating answer…");
-
-  const peer = await ensurePeer();
+  setStatus("Generating answer…");
+  const peer = ensurePeer();
   await peer.setRemoteDescription(offer);
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
@@ -149,104 +159,108 @@ async function useOfferText(text) {
   const local = peer.localDescription;
   if (!local) throw new Error("No local description");
 
-  const encoded = encodeSignal({ type: local.type, sdp: local.sdp });
-  el.answerText.value = encoded;
+  answerEncoded = await encodeSignal({ type: local.type, sdp: local.sdp });
+
+  // Auto-copy to clipboard (requires page focus; works in click-handler context).
+  let autoCopied = false;
   try {
-    await drawQrToCanvas(el.answerQr, encoded);
-  } catch (e) {
-    setStatus("Answer too large for QR. Use Copy on iPad and Paste on iPhone.");
+    await navigator.clipboard.writeText(answerEncoded);
+    autoCopied = true;
+  } catch { /* no clipboard permission — user will tap Copy */ }
+
+  const hint = autoCopied
+    ? "Answer copied — go to iPhone and tap 'Paste Answer'"
+    : "Tap 'Copy Answer', then go to iPhone and tap 'Paste Answer'";
+
+  showAnswerPane(hint);
+  setStatus(autoCopied ? "Answer copied" : "Answer ready");
+}
+
+/** Read offer from clipboard (user gesture required). */
+async function pasteFromiPhone() {
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    // Fallback: show the manual textarea.
+    el.panePaste.hidden = false;
+    el.offerText.focus();
+    setStatus("Paste the link or offer text, then tap 'Use offer'");
+    return;
   }
-
-  el.paneAnswer.hidden = false;
-  setStatus("Ready. Show the QR to iPhone (or Copy/Paste).");
+  if (!text?.trim()) {
+    el.panePaste.hidden = false;
+    el.offerText.focus();
+    setStatus("Clipboard empty — paste manually");
+    return;
+  }
+  await processOfferText(text);
 }
 
-async function drawQrToCanvas(container, text) {
-  // QrCreator is a global from qr-creator.min.js
-  // @ts-ignore
-  if (!window.QrCreator || typeof QrCreator.render !== "function") throw new Error("QR library failed to load");
-  container.innerHTML = "";
-  const holder = document.createElement("div");
-  container.appendChild(holder);
-  // @ts-ignore
-  QrCreator.render(
-    { text, radius: 0, ecLevel: "L", fill: "#ffffff", background: null, size: 260 },
-    holder
-  );
-}
-
-async function startScanner() {
-  stopScanner();
-  hideAllPanes();
-  el.paneScanner.hidden = false;
-
-  // Html5Qrcode is global from html5-qrcode.min.js
-  // @ts-ignore
-  const Html5Qrcode = window.Html5Qrcode;
-  if (!Html5Qrcode) throw new Error("QR scanner unavailable");
-
-  qr = new Html5Qrcode("qrReader");
-  setStatus("Scanning iPhone… (allow camera)");
-
-  // @ts-ignore
-  const cameras = await Html5Qrcode.getCameras();
-  const cameraId = cameras?.[0]?.id;
-  if (!cameraId) throw new Error("No camera found");
-
-  await qr.start(
-    { deviceId: { exact: cameraId } },
-    { fps: 10, qrbox: { width: 240, height: 240 } },
-    async (decodedText) => {
-      stopScanner();
-      try {
-        await useOfferText(decodedText);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Scan failed.";
-        setStatus(`${msg} ${hintForError(e)}`);
-        el.panePaste.hidden = false;
+/** Share the answer URL back to iPhone via Web Share API. */
+async function shareAnswer() {
+  if (!answerEncoded) return;
+  // Embed answer in the monitor URL itself so the iPhone can theoretically
+  // open it too, but the main use-case is clipboard paste.
+  const url = `${location.href.split("#")[0]}#a=${answerEncoded}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ url, title: "Golf Monitor answer" });
+    } catch (e) {
+      if (!(e instanceof Error) || e.name !== "AbortError") {
+        await copyAnswer();
       }
     }
-  );
-}
-
-function stopScanner() {
-  if (!qr) return;
-  const q = qr;
-  qr = null;
-  q.stop?.().catch(() => {}).finally(() => q.clear?.());
-}
-
-async function copyAnswer() {
-  const text = el.answerText.value.trim();
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    setStatus("Answer copied");
-  } catch {
-    // Fallback: select for manual copy
-    el.answerText.focus();
-    el.answerText.select();
-    setStatus("Select + copy");
+  } else {
+    await copyAnswer();
   }
 }
 
+/** Copy the answer encoded string to clipboard. */
+async function copyAnswer() {
+  if (!answerEncoded) return;
+  try {
+    await navigator.clipboard.writeText(answerEncoded);
+    setStatus("Answer copied — go to iPhone and tap 'Paste Answer'");
+  } catch {
+    setStatus("Couldn't copy automatically — long-press the answer text to copy");
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+
 function init() {
-  hideAllPanes();
+  showIdlePane();
 
-  el.btnScanOffer.addEventListener("click", () => startScanner().catch((e) => setStatus(`Scan failed. ${hintForError(e)}`)));
-  el.btnStopScan.addEventListener("click", () => { stopScanner(); hideAllPanes(); setStatus("Not paired"); });
+  // Auto-process offer if the URL hash contains #o=… (opened via Share link from iPhone).
+  const hash = location.hash;
+  if (hash.startsWith("#o=")) {
+    const encoded = hash.slice(3);
+    processOfferText(encoded).catch((e) => {
+      setStatus(e instanceof Error ? e.message : "Failed to process offer — get a new link from iPhone");
+      showIdlePane();
+    });
+  }
 
-  el.btnPasteOffer.addEventListener("click", () => { stopScanner(); hideAllPanes(); el.panePaste.hidden = false; setStatus("Paste from iPhone"); });
-  el.btnUseOffer.addEventListener("click", () =>
-    useOfferText(el.offerText.value).catch((e) => {
-      const msg = e instanceof Error ? e.message : "Paste failed.";
-      setStatus(`${msg} ${hintForError(e)}`);
+  el.btnPasteOffer.addEventListener("click", () =>
+    pasteFromiPhone().catch((e) => {
+      setStatus(e instanceof Error ? e.message : "Paste failed");
+      el.panePaste.hidden = false;
     })
   );
 
-  el.btnCopyAnswer.addEventListener("click", () => copyAnswer());
-  el.btnResetPair.addEventListener("click", () => resetAll());
+  el.btnUseOffer.addEventListener("click", () =>
+    processOfferText(el.offerText.value).catch((e) =>
+      setStatus(e instanceof Error ? e.message : "Invalid offer")
+    )
+  );
+
+  el.btnShareAnswer.addEventListener("click", () => shareAnswer().catch(() => copyAnswer()));
+  el.btnCopyAnswer.addEventListener("click",  () => copyAnswer());
+
+  const doReset = () => resetAll();
+  el.btnResetPair.addEventListener("click",  doReset);
+  el.btnResetPair2.addEventListener("click", doReset);
 }
 
 init();
-

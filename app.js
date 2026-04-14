@@ -103,17 +103,13 @@ const el = {
   swingSummary:   /** @type {HTMLDivElement}    */ (document.getElementById("swingSummary")),
 
   // iPhone monitor pairing panel
-  monitorPanel:       /** @type {HTMLDivElement} */ (document.getElementById("monitorPanel")),
-  monitorPairStatus:  /** @type {HTMLDivElement} */ (document.getElementById("monitorPairStatus")),
-  btnMonitorClose:    /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorClose")),
-  monitorOfferQr:     /** @type {HTMLDivElement} */ (document.getElementById("monitorOfferQr")),
-  monitorOfferText:   /** @type {HTMLTextAreaElement} */ (document.getElementById("monitorOfferText")),
-  btnMonitorNewOffer: /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorNewOffer")),
-  btnMonitorCopyOffer:/** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorCopyOffer")),
-  btnMonitorScanAnswer: /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorScanAnswer")),
+  monitorPanel:         /** @type {HTMLDivElement} */ (document.getElementById("monitorPanel")),
+  monitorPairStatus:    /** @type {HTMLDivElement} */ (document.getElementById("monitorPairStatus")),
+  btnMonitorClose:      /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorClose")),
+  btnMonitorShare:      /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorShare")),
+  btnMonitorCopyOffer:  /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorCopyOffer")),
+  btnMonitorNewOffer:   /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorNewOffer")),
   btnMonitorPasteAnswer:/** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorPasteAnswer")),
-  btnMonitorStopScan:   /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorStopScan")),
-  monitorAnswerReader:  /** @type {HTMLDivElement} */ (document.getElementById("monitorAnswerReader")),
   monitorAnswerText:    /** @type {HTMLTextAreaElement} */ (document.getElementById("monitorAnswerText")),
   btnMonitorUseAnswer:  /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorUseAnswer")),
 };
@@ -132,12 +128,12 @@ function uid() { return Math.random().toString(16).slice(2) + Date.now().toStrin
 // ── Monitor (WebRTC DataChannel) ───────────────────────────────────────────────
 
 const monitor = {
-  pc: /** @type {RTCPeerConnection|null} */ (null),
-  dc: /** @type {RTCDataChannel|null} */ (null),
-  qr: /** @type {any|null} */ (null),
-  connected: false,
-  lastSentAt: 0,
-  lastKey: "",
+  pc:          /** @type {RTCPeerConnection|null} */ (null),
+  dc:          /** @type {RTCDataChannel|null} */ (null),
+  connected:   false,
+  lastSentAt:  0,
+  lastKey:     "",
+  offerUrl:    "", // full monitor.html#o=… URL, ready for sharing / copying
 };
 
 function monitorSetStatus(msg) {
@@ -158,7 +154,7 @@ function monitorResetPeer() {
   monitor.connected = false;
   monitor.lastSentAt = 0;
   monitor.lastKey = "";
-  monitorStopScan();
+  monitor.offerUrl = "";
 }
 
 function monitorCreatePeer() {
@@ -167,10 +163,10 @@ function monitorCreatePeer() {
     const s = pc.connectionState;
     if (s === "connected") {
       monitor.connected = true;
-      monitorSetStatus("Paired (connected). You can start the camera.");
+      monitorSetStatus("Connected — iPad is receiving data");
     } else if (s === "disconnected" || s === "failed") {
       monitor.connected = false;
-      monitorSetStatus("Disconnected.");
+      monitorSetStatus("Disconnected — open the panel to re-pair");
     }
   };
   return pc;
@@ -178,12 +174,12 @@ function monitorCreatePeer() {
 
 function monitorAttachDataChannel(dc) {
   monitor.dc = dc;
-  monitor.dc.onopen = () => { monitor.connected = true; monitorSetStatus("Paired (receiving on iPad)."); };
-  monitor.dc.onclose = () => { monitor.connected = false; monitorSetStatus("Disconnected."); };
-  monitor.dc.onerror = () => { monitor.connected = false; monitorSetStatus("Data channel error."); };
+  monitor.dc.onopen  = () => { monitor.connected = true;  monitorSetStatus("Connected — iPad is receiving data"); };
+  monitor.dc.onclose = () => { monitor.connected = false; monitorSetStatus("Disconnected"); };
+  monitor.dc.onerror = () => { monitor.connected = false; monitorSetStatus("Data channel error"); };
 }
 
-async function monitorWaitForIce(pc, timeoutMs = 2200) {
+async function monitorWaitForIce(pc, timeoutMs = 900) {
   if (pc.iceGatheringState === "complete") return;
   await new Promise((resolve) => {
     let done = false;
@@ -200,15 +196,43 @@ async function monitorWaitForIce(pc, timeoutMs = 2200) {
   });
 }
 
-function monitorBase64UrlEncode(bytes) {
+/** Compress an object to a base64url string. Uses native DeflateRaw; plain base64url fallback. */
+async function monitorEncodeSignal(obj) {
+  const input = new TextEncoder().encode(JSON.stringify(obj));
+  if (typeof CompressionStream !== "undefined") {
+    try {
+      const cs = new CompressionStream("deflate-raw");
+      const w = cs.writable.getWriter();
+      w.write(input); w.close();
+      return _monitorB64uEncode(new Uint8Array(await new Response(cs.readable).arrayBuffer()));
+    } catch { /* fall through */ }
+  }
+  return _monitorB64uEncode(input);
+}
+
+/** Decompress a base64url string back to an object. Mirrors monitorEncodeSignal. */
+async function monitorDecodeSignal(text) {
+  const bytes = _monitorB64uDecode(String(text || "").trim());
+  if (typeof DecompressionStream !== "undefined") {
+    try {
+      const ds = new DecompressionStream("deflate-raw");
+      const w = ds.writable.getWriter();
+      w.write(bytes); w.close();
+      return JSON.parse(new TextDecoder().decode(await new Response(ds.readable).arrayBuffer()));
+    } catch { /* fall through */ }
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+function _monitorB64uEncode(bytes) {
   let bin = "";
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-function monitorBase64UrlDecode(text) {
-  let s = String(text || "").trim().replace(/-/g, "+").replace(/_/g, "/");
+function _monitorB64uDecode(b64url) {
+  let s = b64url.replace(/-/g, "+").replace(/_/g, "/");
   const pad = s.length % 4;
   if (pad) s += "=".repeat(4 - pad);
   const bin = atob(s);
@@ -217,45 +241,12 @@ function monitorBase64UrlDecode(text) {
   return out;
 }
 
-function monitorEncodeSignal(obj) {
-  const json = JSON.stringify(obj);
-  // If available, compress to shrink QR payload size.
-  // LZString is a global from lz-string.min.js
-  // @ts-ignore
-  const bytes = (typeof LZString !== "undefined" && typeof LZString.compressToUint8Array === "function")
-    // @ts-ignore
-    ? LZString.compressToUint8Array(json)
-    : new TextEncoder().encode(json);
-  return monitorBase64UrlEncode(bytes);
-}
-
-function monitorDecodeSignal(text) {
-  const bytes = monitorBase64UrlDecode(text);
-  // @ts-ignore
-  const json = (typeof LZString !== "undefined" && typeof LZString.decompressFromUint8Array === "function")
-    // @ts-ignore
-    ? LZString.decompressFromUint8Array(bytes)
-    : new TextDecoder().decode(bytes);
-  return JSON.parse(json);
-}
-
-async function monitorDrawQr(canvas, text) {
-  // QrCreator is a global from qr-creator.min.js
-  // @ts-ignore
-  if (!window.QrCreator || typeof QrCreator.render !== "function") throw new Error("QR library failed to load");
-  canvas.innerHTML = "";
-  const holder = document.createElement("div");
-  canvas.appendChild(holder);
-  // @ts-ignore
-  QrCreator.render(
-    { text, radius: 0, ecLevel: "L", fill: "#ffffff", background: null, size: 260 },
-    holder
-  );
-}
-
+/** Generate a fresh WebRTC offer and build the monitor URL containing it. */
 async function monitorNewOffer() {
   monitorResetPeer();
-  monitorSetStatus("Creating QR…");
+  monitorSetStatus("Generating link…");
+  if (el.monitorAnswerText) { el.monitorAnswerText.value = ""; el.monitorAnswerText.hidden = true; }
+  if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = true;
 
   monitor.pc = monitorCreatePeer();
   const dc = monitor.pc.createDataChannel("monitor");
@@ -263,116 +254,86 @@ async function monitorNewOffer() {
 
   const offer = await monitor.pc.createOffer();
   await monitor.pc.setLocalDescription(offer);
-  // Shorter gather keeps SDP smaller; LAN usually has usable host candidates quickly.
+  // Short timeout — on LAN, host candidates are enough and keep the SDP small.
   await monitorWaitForIce(monitor.pc, 900);
 
   const local = monitor.pc.localDescription;
   if (!local) throw new Error("No local description");
 
-  const encoded = monitorEncodeSignal({ type: local.type, sdp: local.sdp });
-  if (el.monitorOfferText) el.monitorOfferText.value = encoded;
-  if (el.monitorOfferQr) {
+  const encoded = await monitorEncodeSignal({ type: local.type, sdp: local.sdp });
+  const base = new URL("./monitor.html", location.href).href.split("#")[0];
+  monitor.offerUrl = `${base}#o=${encoded}`;
+
+  monitorSetStatus("Link ready — Share to iPad or Copy link");
+}
+
+/** Open the native Share Sheet (AirDrop etc.) with the offer URL. */
+async function monitorShare() {
+  if (!monitor.offerUrl) await monitorNewOffer();
+  if (navigator.share) {
     try {
-      el.monitorOfferQr.hidden = false;
-      await monitorDrawQr(el.monitorOfferQr, encoded);
-      monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
+      await navigator.share({ url: monitor.offerUrl, title: "Golf Monitor" });
     } catch (e) {
-      if (el.monitorOfferQr) el.monitorOfferQr.hidden = true;
-      const msg = e instanceof Error ? e.message : "QR render failed";
-      monitorSetStatus(`${msg}. Use Copy/Paste.`);
+      if (!(e instanceof Error) || e.name !== "AbortError") {
+        monitorSetStatus("Share failed — use Copy link instead");
+      }
     }
-  }
-  if (!el.monitorOfferQr) {
-    monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
+  } else {
+    // Browser doesn't support share; fall back to copy.
+    await monitorCopyOfferLink();
   }
 }
 
-async function monitorUseAnswerText(text) {
-  if (!monitor.pc) throw new Error("No offer yet");
+/** Copy the offer URL to the clipboard. */
+async function monitorCopyOfferLink() {
+  if (!monitor.offerUrl) await monitorNewOffer();
+  try {
+    await navigator.clipboard.writeText(monitor.offerUrl);
+    monitorSetStatus("Link copied — open on iPad, tap 'Paste from iPhone'");
+  } catch {
+    monitorSetStatus("Couldn't auto-copy. Long-press the address bar to copy the URL manually.");
+  }
+}
+
+/**
+ * Read the answer from the clipboard (requires a user-gesture click).
+ * Falls back to showing a textarea if the clipboard API is unavailable.
+ */
+async function monitorPasteAnswer() {
+  let text = "";
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    // Clipboard read unavailable — show the manual textarea fallback.
+    if (el.monitorAnswerText) { el.monitorAnswerText.hidden = false; el.monitorAnswerText.focus(); }
+    if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = false;
+    monitorSetStatus("Paste the answer from iPad into the box, then tap Connect");
+    return;
+  }
+  if (!text?.trim()) {
+    monitorSetStatus("Clipboard is empty — copy the answer on iPad first");
+    return;
+  }
+  await monitorApplyAnswer(text.trim());
+}
+
+/** Decode and apply an answer SDP to the existing peer connection. */
+async function monitorApplyAnswer(text) {
+  if (!monitor.pc) { monitorSetStatus("Generate a new link first"); return; }
   let answer;
   try {
-    answer = monitorDecodeSignal(text);
+    answer = await monitorDecodeSignal(text);
   } catch {
-    throw new Error("Invalid text. Paste/scan the iPad's QR text exactly.");
+    monitorSetStatus("Couldn't read the answer — make sure you copied the full text from iPad");
+    return;
   }
-  if (!answer?.type || !answer?.sdp) throw new Error("Invalid answer");
+  if (!answer?.type || !answer?.sdp) { monitorSetStatus("Invalid answer — try generating a new link"); return; }
   monitorSetStatus("Connecting…");
-  await monitor.pc.setRemoteDescription(answer);
-  monitorSetStatus("Connected (waiting for data channel)…");
-}
-
-function monitorStopScan() {
-  if (!monitor.qr) return;
-  const q = monitor.qr;
-  monitor.qr = null;
-  q.stop?.().catch(() => {}).finally(() => q.clear?.());
-  if (el.monitorAnswerReader) el.monitorAnswerReader.hidden = true;
-  if (el.btnMonitorStopScan) el.btnMonitorStopScan.hidden = true;
-}
-
-async function monitorScanAnswer() {
-  monitorStopScan();
-  if (!el.monitorAnswerReader) return;
-  if (!monitor.pc) await monitorNewOffer();
-
-  el.monitorAnswerReader.hidden = false;
-  if (el.monitorAnswerText) el.monitorAnswerText.hidden = true;
-  if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = true;
-  if (el.btnMonitorStopScan) el.btnMonitorStopScan.hidden = false;
-
-  // Html5Qrcode is global from html5-qrcode.min.js
-  // @ts-ignore
-  const Html5Qrcode = window.Html5Qrcode;
-  if (!Html5Qrcode) throw new Error("QR scanner failed to load");
-
-  monitor.qr = new Html5Qrcode("monitorAnswerReader");
-  monitorSetStatus("Scanning iPad…");
-
-  // @ts-ignore
-  const cameras = await Html5Qrcode.getCameras();
-  const cameraId = cameras?.[0]?.id;
-  if (!cameraId) throw new Error("No camera found");
-
   try {
-    await monitor.qr.start(
-      { deviceId: { exact: cameraId } },
-      { fps: 10, qrbox: { width: 240, height: 240 } },
-      async (decodedText) => {
-        monitorStopScan();
-        if (el.monitorAnswerText) el.monitorAnswerText.value = decodedText;
-        try {
-          await monitorUseAnswerText(decodedText);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Connect failed";
-          monitorSetStatus(`${msg}. Try scanning again.`);
-        }
-      }
-    );
-  } catch (e) {
-    monitorStopScan();
-    const msg = e instanceof Error ? e.message : "Scan failed";
-    monitorSetStatus(`${msg}. If the swing camera is on, stop it first.`);
-  }
-}
-
-function monitorPasteAnswerMode() {
-  monitorStopScan();
-  if (el.monitorAnswerReader) el.monitorAnswerReader.hidden = true;
-  if (el.monitorAnswerText) el.monitorAnswerText.hidden = false;
-  if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = false;
-  monitorSetStatus("Paste the iPad text, then Connect.");
-}
-
-async function monitorCopyOffer() {
-  const text = el.monitorOfferText?.value?.trim();
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    monitorSetStatus("Copied.");
+    await monitor.pc.setRemoteDescription(answer);
+    monitorSetStatus("Paired — start the camera to send data to iPad");
   } catch {
-    el.monitorOfferText?.focus();
-    el.monitorOfferText?.select();
-    monitorSetStatus("Select + copy.");
+    monitorSetStatus("Connection failed — try generating a new link");
   }
 }
 
@@ -1478,38 +1439,27 @@ function init() {
   // Monitor pairing (iPhone sender)
   if (el.btnMonitorPair) {
     el.btnMonitorPair.addEventListener("click", async () => {
-      if (state.ready) stopCamera(); // free the camera for QR scanning
       monitorShowPanel(true);
-      try { await monitorNewOffer(); } catch { monitorSetStatus("Monitor setup failed."); }
+      // Only generate a fresh offer if we don't already have one ready.
+      if (!monitor.offerUrl) {
+        try { await monitorNewOffer(); } catch { monitorSetStatus("Failed to generate link — check network."); }
+      }
     });
   }
   if (el.btnMonitorClose) {
-    el.btnMonitorClose.addEventListener("click", () => {
-      monitorStopScan();
-      monitorShowPanel(false);
-    });
+    el.btnMonitorClose.addEventListener("click", () => monitorShowPanel(false));
   }
   if (el.monitorPanel) {
+    // Tap the backdrop to close.
     el.monitorPanel.addEventListener("pointerdown", (e) => {
-      // Tap backdrop to close (but not when tapping inside card)
-      if (e.target === el.monitorPanel) {
-        monitorStopScan();
-        monitorShowPanel(false);
-      }
+      if (e.target === el.monitorPanel) monitorShowPanel(false);
     }, { passive: true });
   }
-  el.btnMonitorNewOffer?.addEventListener("click", () => monitorNewOffer().catch((e) => monitorSetStatus(e instanceof Error ? e.message : "QR failed")));
-  el.btnMonitorCopyOffer?.addEventListener("click", () => monitorCopyOffer());
-  el.btnMonitorScanAnswer?.addEventListener("click", () => monitorScanAnswer().catch((e) => monitorSetStatus(e instanceof Error ? e.message : "Scan failed")));
-  el.btnMonitorStopScan?.addEventListener("click", () => { monitorStopScan(); monitorSetStatus("Scan stopped."); });
-  el.btnMonitorPasteAnswer?.addEventListener("click", () => {
-    if (!monitor.pc) monitorNewOffer().catch(() => {});
-    monitorPasteAnswerMode();
-  });
-  el.btnMonitorUseAnswer?.addEventListener("click", () => {
-    const text = el.monitorAnswerText?.value || "";
-    monitorUseAnswerText(text).catch(() => monitorSetStatus("Answer error."));
-  });
+  el.btnMonitorShare?.addEventListener("click",        () => monitorShare().catch((e)           => monitorSetStatus(e instanceof Error ? e.message : "Share failed")));
+  el.btnMonitorCopyOffer?.addEventListener("click",   () => monitorCopyOfferLink().catch((e)    => monitorSetStatus(e instanceof Error ? e.message : "Copy failed")));
+  el.btnMonitorNewOffer?.addEventListener("click",    () => monitorNewOffer().catch((e)          => monitorSetStatus(e instanceof Error ? e.message : "Failed to generate link")));
+  el.btnMonitorPasteAnswer?.addEventListener("click", () => monitorPasteAnswer().catch((e)      => monitorSetStatus(e instanceof Error ? e.message : "Paste failed")));
+  el.btnMonitorUseAnswer?.addEventListener("click",   () => monitorApplyAnswer(el.monitorAnswerText?.value?.trim() ?? "").catch(() => {}));
 
   el.canvas.addEventListener("pointerdown",  (e) => { bumpUiActivity(); onPointerDown(e); }, { passive: true });
   el.canvas.addEventListener("pointermove",  (e) => { bumpUiActivity(); onPointerMove(e); }, { passive: true });

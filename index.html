@@ -154,41 +154,31 @@
           </div>
         </div>
 
-        <!-- iPhone-side monitor pairing panel (creates offer + accepts answer) -->
+        <!-- iPhone-side monitor pairing panel -->
         <div class="monitorPanel" id="monitorPanel" aria-hidden="true">
           <div class="monitorCard" role="dialog" aria-label="Pair iPad monitor">
             <div class="monitorCardTop">
               <div class="monitorCardTitle">Pair iPad Monitor</div>
               <button id="btnMonitorClose" class="btn small" type="button">Close</button>
             </div>
-            <div class="monitorCardSub" id="monitorPairStatus">Step 1: iPad scans this QR · Step 2: iPhone scans iPad QR</div>
+            <div class="monitorCardSub" id="monitorPairStatus">Generating link…</div>
 
-            <div class="monitorOfferRow">
-              <div id="monitorOfferQr" class="monitorQrBox" aria-label="Offer QR"></div>
-              <div class="monitorOfferCol">
-                <div class="monitorHint">On the iPad, open <strong>Monitor</strong> and scan this QR.</div>
-                <textarea id="monitorOfferText" class="monitorText" rows="4" spellcheck="false" readonly></textarea>
-                <div class="monitorBtnRow">
-                  <button id="btnMonitorNewOffer" class="btn primary" type="button">New QR</button>
-                  <button id="btnMonitorCopyOffer" class="btn" type="button">Copy</button>
-                </div>
-              </div>
+            <div class="monitorHint">Step 1 — Send the link to the iPad.</div>
+            <div class="monitorBtnRow">
+              <button id="btnMonitorShare" class="btn primary" type="button">Share to iPad</button>
+              <button id="btnMonitorCopyOffer" class="btn" type="button">Copy link</button>
+              <button id="btnMonitorNewOffer" class="btn" type="button">New link</button>
             </div>
 
             <div class="monitorDivider"></div>
 
-            <div class="monitorAnswerBlock">
-              <div class="monitorHint">After the iPad scans, it will show a QR back. Scan it here to connect.</div>
-              <div class="monitorBtnRow">
-                <button id="btnMonitorScanAnswer" class="btn primary" type="button">Scan iPad</button>
-                <button id="btnMonitorPasteAnswer" class="btn" type="button">Paste</button>
-                <button id="btnMonitorStopScan" class="btn danger" type="button" hidden>Stop</button>
-              </div>
-              <div id="monitorAnswerReader" class="monitorQrReader" hidden aria-label="Answer QR scanner"></div>
-              <textarea id="monitorAnswerText" class="monitorText" rows="3" spellcheck="false" autocapitalize="off" hidden></textarea>
-              <div class="monitorBtnRow">
-                <button id="btnMonitorUseAnswer" class="btn primary" type="button" hidden>Connect</button>
-              </div>
+            <div class="monitorHint">Step 2 — On the iPad tap <strong>Paste from iPhone</strong>, then come back here.</div>
+            <div class="monitorBtnRow">
+              <button id="btnMonitorPasteAnswer" class="btn primary" type="button">Paste Answer</button>
+            </div>
+            <textarea id="monitorAnswerText" class="monitorText" rows="3" spellcheck="false" autocapitalize="off" hidden placeholder="Or paste the answer text here…"></textarea>
+            <div class="monitorBtnRow">
+              <button id="btnMonitorUseAnswer" class="btn primary" type="button" hidden>Connect</button>
             </div>
           </div>
         </div>
@@ -198,9 +188,6 @@
     <!-- TF.js + MoveNet for pose-based swing analysis. Loads async; app degrades gracefully if unavailable. -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
-    <script src="./vendor/lz-string.min.js"></script>
-    <script src="./vendor/qr-creator.min.js"></script>
-    <script src="./vendor/html5-qrcode.min.js"></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

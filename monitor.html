@@ -40,48 +40,36 @@
 
       <section class="monitorPair" aria-label="Pairing">
         <div class="monitorPairCard">
-          <div class="monitorPairTitle">Pairing</div>
-          <div class="monitorPairHint">Step 1: Scan iPhone · Step 2: Show QR to iPhone</div>
-          <div class="monitorPairRow">
-            <button class="btn primary" type="button" id="btnScanOffer">Scan iPhone</button>
-            <button class="btn" type="button" id="btnPasteOffer">Paste</button>
+          <div class="monitorPairTitle">Connect</div>
+
+          <!-- Shown before an offer arrives -->
+          <div id="pairIdle">
+            <div class="monitorPairHint">Open the link from iPhone to pair automatically, or paste the offer text manually.</div>
+            <div class="monitorPairRow">
+              <button class="btn primary" type="button" id="btnPasteOffer">Paste from iPhone</button>
+              <button class="btn" type="button" id="btnResetPair">Reset</button>
+            </div>
+            <div id="panePaste" hidden>
+              <textarea id="offerText" class="monitorText" rows="4" spellcheck="false" autocapitalize="off" placeholder="Paste the link or offer text here…"></textarea>
+              <div class="monitorPairRow">
+                <button class="btn primary" type="button" id="btnUseOffer">Use offer</button>
+              </div>
+            </div>
           </div>
 
-          <div class="monitorPairBody">
-            <div class="monitorPairPane" id="paneScanner" hidden>
-              <div class="monitorPairHint">Point the iPad camera at the iPhone QR.</div>
-              <div id="qrReader" class="monitorQrReader" aria-label="QR scanner"></div>
-              <div class="monitorPairRow">
-                <button class="btn danger" type="button" id="btnStopScan">Stop scan</button>
-              </div>
-            </div>
-
-            <div class="monitorPairPane" id="panePaste" hidden>
-              <div class="monitorPairHint">Paste the iPhone text.</div>
-              <textarea id="offerText" class="monitorText" rows="5" spellcheck="false" autocapitalize="off"></textarea>
-              <div class="monitorPairRow">
-                <button class="btn primary" type="button" id="btnUseOffer">Continue</button>
-              </div>
-            </div>
-
-            <div class="monitorPairPane" id="paneAnswer" hidden>
-              <div class="monitorPairHint">Show this QR to the iPhone.</div>
-              <div id="answerQr" class="monitorQrBox" aria-label="Answer QR"></div>
-              <textarea id="answerText" class="monitorText" rows="4" spellcheck="false" readonly></textarea>
-              <div class="monitorPairRow">
-                <button class="btn" type="button" id="btnCopyAnswer">Copy answer</button>
-                <button class="btn" type="button" id="btnResetPair">Reset</button>
-              </div>
+          <!-- Shown after the offer is processed and an answer is ready -->
+          <div id="pairAnswer" hidden>
+            <div class="monitorPairHint" id="answerHint">Answer ready</div>
+            <div class="monitorPairRow">
+              <button class="btn primary" type="button" id="btnShareAnswer">Share to iPhone</button>
+              <button class="btn" type="button" id="btnCopyAnswer">Copy Answer</button>
+              <button class="btn" type="button" id="btnResetPair2">Reset</button>
             </div>
           </div>
         </div>
       </section>
     </main>
 
-    <script src="./vendor/lz-string.min.js"></script>
-    <script src="./vendor/qr-creator.min.js"></script>
-    <script src="./vendor/html5-qrcode.min.js"></script>
     <script type="module" src="./monitor.js"></script>
   </body>
 </html>
-

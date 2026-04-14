@@ -1,12 +1,28 @@
 :root {
   color-scheme: dark;
-  --bg: #070a12;
-  --panel: rgba(12, 16, 26, 0.72);
-  --panel-border: rgba(255, 255, 255, 0.1);
+  --bg: #06070b;
+  --bg2: #070a12;
+  --panel: rgba(14, 16, 22, 0.68);
+  --panel-2: rgba(10, 12, 16, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.10);
+  --panel-border-2: rgba(255, 255, 255, 0.14);
   --text: rgba(255, 255, 255, 0.92);
-  --muted: rgba(255, 255, 255, 0.68);
-  --primary: #4f7cff;
-  --danger: #ff5a6b;
+  --muted: rgba(255, 255, 255, 0.66);
+  --faint: rgba(255, 255, 255, 0.10);
+
+  /* Brand accents (match reference: acid green + warm highlights) */
+  --lime: #b5ff00;
+  --lime-2: #7dff4d;
+  --amber: #ffd44d;
+  --primary: var(--lime);
+  --danger: #ff4d6d;
+
+  --shadow: 0 18px 70px rgba(0, 0, 0, 0.50);
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --radius: 16px;
+  --radius-sm: 12px;
+  --radius-pill: 999px;
+  --dock-pad: 10px;
 }
 
 *,
@@ -19,10 +35,12 @@ html,
 body {
   height: 100%;
   margin: 0;
-  background: var(--bg);
+  background: radial-gradient(1200px 900px at 50% 15%, #0e1321 0%, var(--bg2) 45%, var(--bg) 100%);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
     "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
 }
 
 .app {
@@ -38,6 +56,17 @@ body {
   touch-action: none;
 }
 
+.vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 700px at 50% 30%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.52) 100%),
+    radial-gradient(900px 500px at 10% 10%, rgba(181,255,0,0.10) 0%, rgba(181,255,0,0) 55%),
+    radial-gradient(900px 500px at 90% 15%, rgba(255,212,77,0.10) 0%, rgba(255,212,77,0) 55%);
+}
+
 .video {
   position: absolute;
   inset: 0;
@@ -45,6 +74,7 @@ body {
   height: 100%;
   object-fit: cover;
   transform: scaleX(-1);
+  filter: contrast(1.05) saturate(1.06);
 }
 
 .overlay {
@@ -52,6 +82,7 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 2;
 }
 
 .hud {
@@ -62,12 +93,14 @@ body {
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  background: var(--panel);
-  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(18,20,28,0.78) 0%, rgba(12,14,20,0.62) 100%);
+  border: 1px solid var(--panel-border-2);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   margin: 10px;
-  border-radius: 14px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  z-index: 5;
 }
 
 .hud.top {
@@ -78,7 +111,7 @@ body {
 .hud.bottom {
   bottom: env(safe-area-inset-bottom);
   justify-content: center;
-  flex-wrap: wrap;
+  padding: var(--dock-pad);
 }
 
 .hud.hidden {
@@ -96,22 +129,24 @@ body {
 .seg {
   display: inline-flex;
   border: 1px solid var(--panel-border);
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
   background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 .segBtn {
   border: 0;
   background: transparent;
   color: var(--muted);
-  padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 700;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
 }
 
 .segBtn.active {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.10);
   color: var(--text);
 }
 
@@ -120,10 +155,12 @@ body {
   border: 1px solid var(--panel-border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-  padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 .select:disabled {
@@ -136,14 +173,16 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  font-size: 92px;
+  font-size: 96px;
   font-weight: 900;
   letter-spacing: -2px;
   color: rgba(255, 255, 255, 0.94);
   text-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
-  background: rgba(0, 0, 0, 0.15);
+  background:
+    radial-gradient(700px 500px at 50% 40%, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.42) 70%, rgba(0,0,0,0.55) 100%);
   user-select: none;
   pointer-events: none;
+  z-index: 6;
 }
 
 .countdown.show {
@@ -157,13 +196,15 @@ body {
   z-index: 10;
   display: none;
   appearance: none;
-  border: 1px solid color-mix(in oklab, var(--danger) 42%, var(--panel-border));
-  background: color-mix(in oklab, var(--danger) 26%, rgba(255, 255, 255, 0.06));
+  border: 1px solid color-mix(in oklab, var(--danger) 48%, var(--panel-border));
+  background: color-mix(in oklab, var(--danger) 22%, rgba(255, 255, 255, 0.06));
   color: var(--text);
   padding: 10px 14px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 800;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  box-shadow: var(--shadow-soft);
 }
 
 .stopFloat.show {
@@ -175,16 +216,49 @@ body {
 }
 
 .brand {
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brandMark {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background:
+    radial-gradient(18px 18px at 30% 30%, rgba(181,255,0,0.95) 0%, rgba(181,255,0,0.12) 65%, rgba(181,255,0,0) 100%),
+    radial-gradient(18px 18px at 70% 70%, rgba(255,212,77,0.82) 0%, rgba(255,212,77,0.10) 65%, rgba(255,212,77,0) 100%),
+    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.02) 100%);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+
+.brandText {
+  display: grid;
+  gap: 2px;
+}
+
+.brandTitle {
+  font-weight: 900;
   letter-spacing: 0.2px;
   font-size: 14px;
-  color: var(--text);
+  line-height: 1.1;
+}
+
+.brandSub {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.1;
 }
 
 .status {
   font-size: 12px;
   color: var(--muted);
   text-align: right;
+  font-weight: 700;
+  letter-spacing: 0.15px;
 }
 
 .btn {
@@ -192,10 +266,16 @@ body {
   border: 1px solid var(--panel-border);
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
-  padding: 10px 12px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  user-select: none;
 }
 
 .btn:disabled {
@@ -203,18 +283,78 @@ body {
 }
 
 .btn.primary {
-  background: color-mix(in oklab, var(--primary) 32%, rgba(255, 255, 255, 0.06));
-  border-color: color-mix(in oklab, var(--primary) 42%, var(--panel-border));
+  background: color-mix(in oklab, var(--primary) 26%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in oklab, var(--primary) 54%, var(--panel-border));
 }
 
 .btn.danger {
-  background: color-mix(in oklab, var(--danger) 26%, rgba(255, 255, 255, 0.06));
-  border-color: color-mix(in oklab, var(--danger) 42%, var(--panel-border));
+  background: color-mix(in oklab, var(--danger) 20%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in oklab, var(--danger) 52%, var(--panel-border));
+}
+
+.btn.accent {
+  background: color-mix(in oklab, var(--amber) 18%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in oklab, var(--amber) 45%, var(--panel-border));
+}
+
+.btnIcon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  opacity: 0.92;
+}
+
+.btnIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.btnLabel {
+  line-height: 1;
 }
 
 .btn.small {
   padding: 8px 10px;
   font-size: 13px;
+}
+
+.dock {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.btn:focus-visible,
+.segBtn:focus-visible,
+.select:focus-visible,
+.stopFloat:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--lime) 65%, white 10%);
+  outline-offset: 2px;
+}
+
+.btn:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.segBtn:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .help {
@@ -224,6 +364,10 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
+  z-index: 20;
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .help.show {
@@ -232,15 +376,17 @@ body {
 
 .helpCard {
   width: min(520px, 100%);
-  background: rgba(12, 16, 26, 0.92);
-  border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  padding: 14px;
+  background: linear-gradient(180deg, rgba(14,16,22,0.92) 0%, rgba(10,12,16,0.90) 100%);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 18px;
+  padding: 14px 14px 12px;
+  box-shadow: var(--shadow);
 }
 
 .helpTitle {
   font-weight: 800;
   margin-bottom: 8px;
+  letter-spacing: 0.2px;
 }
 
 .helpList {
@@ -252,12 +398,16 @@ body {
 
 @supports not (color-mix(in oklab, white 50%, black)) {
   .btn.primary {
-    background: rgba(79, 124, 255, 0.28);
-    border-color: rgba(79, 124, 255, 0.42);
+    background: rgba(181, 255, 0, 0.18);
+    border-color: rgba(181, 255, 0, 0.42);
   }
   .btn.danger {
-    background: rgba(255, 90, 107, 0.22);
-    border-color: rgba(255, 90, 107, 0.4);
+    background: rgba(255, 77, 109, 0.18);
+    border-color: rgba(255, 77, 109, 0.40);
+  }
+  .btn.accent {
+    background: rgba(255, 212, 77, 0.14);
+    border-color: rgba(255, 212, 77, 0.35);
   }
 }
 

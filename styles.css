@@ -114,6 +114,12 @@ body {
   padding: var(--dock-pad);
 }
 
+.hud.bottom {
+  /* Safari sometimes lets wide flex children bleed past rounded box.
+     Force the dock to size within the panel. */
+  overflow: hidden;
+}
+
 .hud.hidden {
   opacity: 0;
   pointer-events: none;
@@ -312,6 +318,18 @@ body {
   height: 18px;
 }
 
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .btnLabel {
   line-height: 1;
 }
@@ -322,12 +340,12 @@ body {
 }
 
 .dock {
-  width: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
+  width: min(420px, 100%);
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto auto;
   gap: 10px;
+  align-items: center;
 }
 
 .group {
@@ -339,6 +357,96 @@ body {
   background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%);
   border: 1px solid rgba(255,255,255,0.10);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  justify-content: center;
+  min-width: 0;
+}
+
+.group.row1 {
+  justify-content: space-between;
+}
+
+.group.row2,
+.group.row3 {
+  justify-content: space-between;
+}
+
+.btn.iconOnly {
+  width: 56px;
+  height: 52px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 16px;
+  gap: 0;
+}
+
+.btn.iconOnly .btnIcon {
+  width: 22px;
+  height: 22px;
+  opacity: 0.95;
+}
+
+.btn.iconOnly .btnIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.group.row2 .btn,
+.group.row3 .btn {
+  flex: 0 0 auto;
+}
+
+.group.row3 .select {
+  width: 92px;
+  text-align: center;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.group.row1 .btn.primary {
+  padding-left: 14px;
+  padding-right: 16px;
+}
+
+.group.row1 .segBtn {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.group.row1 .seg {
+  flex: 0 0 auto;
+}
+
+.group.row1 .btn.primary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.group.row1 .btnLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group.row1 {
+  gap: 12px;
+}
+
+.group.row2,
+.group.row3 {
+  gap: 12px;
+}
+
+@media (max-width: 360px) {
+  .dock {
+    width: 100%;
+  }
+  .btn.iconOnly {
+    width: 52px;
+    height: 50px;
+  }
+  .group.row3 .select {
+    width: 86px;
+  }
 }
 
 .btn:focus-visible,

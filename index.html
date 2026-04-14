@@ -24,16 +24,15 @@
           <div class="brand">
             <div class="brandMark" aria-hidden="true"></div>
             <div class="brandText">
-              <div class="brandTitle">Swing Plane</div>
+              <div class="brandTitle">Simple Golf Alignment App</div>
               <div class="brandSub">Live camera overlay</div>
             </div>
           </div>
-          <div class="status" id="status" role="status" aria-live="polite">Tap Start camera</div>
         </div>
 
         <div class="hud bottom">
           <div class="dock">
-            <div class="group">
+            <div class="group row1">
               <button id="btnStartStop" class="btn primary" type="button">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
@@ -48,55 +47,54 @@
               </div>
             </div>
 
-            <div class="group">
-              <button id="btnAdd" class="btn" type="button" disabled>
+            <div class="group row2">
+              <button id="btnAdd" class="btn iconOnly" type="button" disabled aria-label="Add line">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
                     <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                   </svg>
                 </span>
-                <span class="btnLabel">Add</span>
+                <span class="srOnly">Add</span>
               </button>
-              <button id="btnDelete" class="btn danger" type="button" disabled>
+              <button id="btnDelete" class="btn danger iconOnly" type="button" disabled aria-label="Delete selected line">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
                     <path d="M6 7h12M9 7v-2h6v2M9 10v8M12 10v8M15 10v8M7 7l1 14h8l1-14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                   </svg>
                 </span>
-                <span class="btnLabel">Delete</span>
+                <span class="srOnly">Delete</span>
               </button>
-              <button id="btnReset" class="btn" type="button" disabled>
+              <button id="btnReset" class="btn iconOnly" type="button" disabled aria-label="Reset lines">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
                     <path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                     <path d="M20 4v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
                 </span>
-                <span class="btnLabel">Reset</span>
+                <span class="srOnly">Reset</span>
               </button>
             </div>
 
-            <div class="group">
+            <div class="group row3">
               <select id="fps" class="select" disabled aria-label="Recording FPS">
                 <option value="30">30 fps</option>
                 <option value="60">60 fps</option>
               </select>
-              <button id="btnRecord" class="btn accent" type="button" disabled>
+              <button id="btnRecord" class="btn accent iconOnly" type="button" disabled aria-label="Record">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M8 8h8v8H8z" stroke="currentColor" stroke-width="2"/>
-                    <path d="M12 12h.01" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+                    <circle cx="12" cy="12" r="6.2" fill="currentColor" opacity="0.95"/>
                   </svg>
                 </span>
-                <span class="btnLabel">Record</span>
+                <span class="srOnly">Record</span>
               </button>
-              <button id="btnStopRec" class="btn danger" type="button" disabled>
+              <button id="btnStopRec" class="btn danger iconOnly" type="button" disabled aria-label="Stop recording">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M8 8h8v8H8z" stroke="currentColor" stroke-width="2"/>
+                    <path d="M8 8h8v8H8z" fill="currentColor" opacity="0.92"/>
                   </svg>
                 </span>
-                <span class="btnLabel">Stop</span>
+                <span class="srOnly">Stop</span>
               </button>
             </div>
           </div>

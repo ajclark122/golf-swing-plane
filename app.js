@@ -148,7 +148,7 @@ function storageKeyForView(view) {
 function defaultLinesForView(view) {
   const base = /** @type {Line} */ ({ id: uid(), x1: 0.5, y1: 0.2, x2: 0.5, y2: 0.85, color: "#ffffff", width: 3 });
   if (view === "front") return [base];
-  return [{ ...base, id: uid(), x1: 0.78, y1: 0.25, x2: 0.28, y2: 0.75 }];
+  return []; // Side view: no default white line — yellow swing-plane line is the only default
 }
 
 function loadLinesForView(view) {
@@ -843,10 +843,10 @@ async function runPoseInference() {
     }
   }
 
-  // ── Stable-frame counter for auto-proposal ────────────────────────────────
+  // ── Stable-frame counter + continuous EMA auto-proposal ──────────────────
   if (newPhase === "address") {
     state.pose.stableFrames++;
-    if (state.pose.stableFrames === 20) autoProposePlaneLine(kps); // once per address stance
+    autoProposePlaneLine(kps); // every frame; EMA-smoothed inside the function
   } else {
     state.pose.stableFrames = 0;
   }
@@ -925,47 +925,85 @@ function detectPhase(handsY, timestamp) {
 }
 
 /**
- * Auto-propose the swing-plane line from arm geometry when the golfer is
- * stable at address. Uses hands midpoint → shoulder midpoint to derive the
- * plane angle and projects it to span the full frame height.
- * Skips silently if dirty (user has manually positioned the line).
+ * Auto-propose the swing-plane line from forearm geometry while at address.
+ * Called every inference frame when phase === "address" and dirty === false.
+ *
+ * Geometry:
+ *  - Direction: elbow→wrist (forearm vector) — better club shaft proxy than shoulder→wrist
+ *  - Upper bound: projected to Y = 0.12 (top of useful frame)
+ *  - Lower bound: ankle height + 2% (≈ ball/ground level) if ankles visible, else Y = 0.85
+ *
+ * EMA smoothing (α = 0.25) prevents jitter; updates settle in ~4 frames (~0.4 s at 10 pose-fps).
+ * localStorage writes are throttled to every 10 stable frames to avoid excessive I/O.
  */
 function autoProposePlaneLine(keypoints) {
   if (state.swingPlaneLine.dirty) return;
 
-  const MIN_CONF = 0.40;
-  const ls = keypoints[5], rs = keypoints[6]; // left/right shoulder
-  const lw = keypoints[9], rw = keypoints[10]; // left/right wrist
+  const MIN_CONF   = 0.40;
+  const ANKLE_CONF = 0.35;
 
-  const lsOk = ls && ls.score >= MIN_CONF, rsOk = rs && rs.score >= MIN_CONF;
-  const lwOk = lw && lw.score >= MIN_CONF, rwOk = rw && rw.score >= MIN_CONF;
+  const le = keypoints[7],  re = keypoints[8];  // left/right elbow
+  const lw = keypoints[9],  rw = keypoints[10]; // left/right wrist
+  const la = keypoints[15], ra = keypoints[16]; // left/right ankle
 
-  if ((!lwOk && !rwOk) || (!lsOk && !rsOk)) return;
+  const leOk = le && le.score >= MIN_CONF,   reOk = re && re.score >= MIN_CONF;
+  const lwOk = lw && lw.score >= MIN_CONF,   rwOk = rw && rw.score >= MIN_CONF;
+  const laOk = la && la.score >= ANKLE_CONF, raOk = ra && ra.score >= ANKLE_CONF;
 
-  const mid = (a, b, fn) => {
-    if (a && b) return { x: (fn(a).nx + fn(b).nx) / 2, y: (fn(a).ny + fn(b).ny) / 2 };
-    const o = fn(a || b); return { x: o.nx, y: o.ny };
+  if ((!lwOk && !rwOk) || (!leOk && !reOk)) return;
+
+  const toO  = (kp) => movenetToOverlay(kp.x, kp.y);
+  const midO = (a, b) => {
+    if (a && b) return { x: (toO(a).nx + toO(b).nx) / 2, y: (toO(a).ny + toO(b).ny) / 2 };
+    const o = toO(a || b); return { x: o.nx, y: o.ny };
   };
-  const toO = (kp) => movenetToOverlay(kp.x, kp.y);
 
-  const handsO   = mid(lwOk ? lw : null, rwOk ? rw : null, toO);
-  const shoulderO = mid(lsOk ? ls : null, rsOk ? rs : null, toO);
+  const handsO = midO(lwOk ? lw : null, rwOk ? rw : null);
+  const elbowO = midO(leOk ? le : null, reOk ? re : null);
 
-  // Direction vector: hands (lower) toward shoulder (upper) — dy is negative
-  const dx = shoulderO.x - handsO.x;
-  const dy = shoulderO.y - handsO.y;
-  if (Math.abs(dy) < 0.04) return; // nearly horizontal arm — skip
+  // Forearm unit vector: elbow → wrist (roughly collinear with club shaft at address)
+  const dx  = handsO.x - elbowO.x;
+  const dy  = handsO.y - elbowO.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux  = dx / len;
+  const uy  = dy / len;
 
-  // Project the line to span Y = 0.12 (top) to Y = 0.80 (bottom of useful frame)
-  const t1 = (0.12 - handsO.y) / dy;
-  const t2 = (0.80 - handsO.y) / dy;
+  if (Math.abs(uy) < 0.01) return; // forearm nearly horizontal — can't project usefully
 
-  state.swingPlaneLine.line = {
-    ...state.swingPlaneLine.line,
-    x1: clamp01(handsO.x + t1 * dx), y1: 0.12,
-    x2: clamp01(handsO.x + t2 * dx), y2: 0.80,
-  };
-  saveSwingPlaneLine();
+  // Lower anchor: ankle height + small offset ≈ ball/ground level; fallback to fixed Y
+  let bottomY = 0.85;
+  if (laOk || raOk) {
+    const ankleO = midO(laOk ? la : null, raOk ? ra : null);
+    bottomY = clamp01(ankleO.y + 0.02);
+  }
+  const topY = 0.12;
+
+  // t such that handsO.y + t*uy = targetY
+  const t1 = (topY    - handsO.y) / uy;
+  const t2 = (bottomY - handsO.y) / uy;
+
+  const newX1 = clamp01(handsO.x + t1 * ux);
+  const newX2 = clamp01(handsO.x + t2 * ux);
+
+  // EMA smoothing — α=0.25 converges in ~4 frames at 10 pose-fps (≈ 0.4 s)
+  const EMA = 0.25;
+  const cur = state.swingPlaneLine.line;
+
+  if (state.pose.stableFrames <= 1) {
+    // First frame back at address: snap directly so there's no blending artifact
+    state.swingPlaneLine.line = { ...cur, x1: newX1, y1: topY, x2: newX2, y2: bottomY };
+  } else {
+    state.swingPlaneLine.line = {
+      ...cur,
+      x1: cur.x1 + (newX1 - cur.x1) * EMA,
+      y1: topY,
+      x2: cur.x2 + (newX2 - cur.x2) * EMA,
+      y2: bottomY,
+    };
+  }
+
+  // Throttle localStorage writes — every 10 stable frames is plenty
+  if (state.pose.stableFrames % 10 === 0) saveSwingPlaneLine();
 }
 
 /**

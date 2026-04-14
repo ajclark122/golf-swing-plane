@@ -25,19 +25,33 @@
         </div>
 
         <div class="hud bottom">
-          <button id="btnStart" class="btn primary" type="button">Start camera</button>
+          <button id="btnStartStop" class="btn primary" type="button">Start camera</button>
+          <div class="seg" role="group" aria-label="View mode">
+            <button id="btnViewFront" class="segBtn active" type="button">Front</button>
+            <button id="btnViewSide" class="segBtn" type="button">Side</button>
+          </div>
           <button id="btnAdd" class="btn" type="button" disabled>Add line</button>
           <button id="btnDelete" class="btn danger" type="button" disabled>Delete</button>
           <button id="btnReset" class="btn" type="button" disabled>Reset</button>
+          <select id="fps" class="select" disabled aria-label="Recording FPS">
+            <option value="30">30 fps</option>
+            <option value="60">60 fps</option>
+          </select>
+          <button id="btnRecord" class="btn" type="button" disabled>Record</button>
+          <button id="btnStopRec" class="btn danger" type="button" disabled>Stop</button>
         </div>
+
+        <div class="countdown" id="countdown" aria-hidden="true"></div>
 
         <div class="help" id="help">
           <div class="helpCard">
             <div class="helpTitle">Tips</div>
             <ul class="helpList">
+              <li>Install as a web app: Share → Add to Home Screen.</li>
               <li>Tap a line to select it.</li>
               <li>Drag an endpoint to rotate/resize.</li>
               <li>Drag the line body to move it.</li>
+              <li>Controls hide after a moment; tap to show them again.</li>
             </ul>
             <button id="btnDismissHelp" class="btn small" type="button">Got it</button>
           </div>

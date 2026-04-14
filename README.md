@@ -2,29 +2,27 @@
 
 Single-page web app that shows the iPhone **front camera** and lets you add/move/delete multiple alignment lines over the live video.
 
+## Install as a web app (recommended)
+1. Open the app URL in Safari.
+2. Tap **Share** → **Add to Home Screen**.
+3. Launch it from your home screen (more full-screen, fewer Safari UI distractions).
+
 ## Why this must be hosted
 iPhone camera access (`getUserMedia`) requires **HTTPS**. It will not reliably work from:
 - `file://` (opening an HTML file from the Files app)
 - `http://192.168.x.x` (plain HTTP on your LAN)
 
-## Deploy on GitHub Pages (private repo)
-1. Create a **new private repo** (example name: `golfcam-lines`).
-2. Add these files to the repo root:
-   - `index.html`
-   - `styles.css`
-   - `app.js`
-3. In GitHub, go to **Settings → Pages**:
-   - **Build and deployment**: Deploy from a branch
-   - **Branch**: your default branch (e.g. `main`), folder `/ (root)`
-4. Wait for Pages to publish, then open the provided **`https://...`** URL on your iPhone.
+GitHub Pages works well because it provides HTTPS automatically.
 
 ## Usage
-- Tap **Start camera**
+- Tap **Start camera** (it becomes **Stop camera**)
+- Choose **Front** or **Side** view (each view saves its own lines)
 - Tap **Add line**
 - Tap a line to select it
   - Drag endpoint handles to rotate/resize
   - Drag the body to move the whole line
 - Tap **Delete** to remove the selected line
+- Tap **Record** for a 5s countdown, then **Stop** to finish (download saves with overlays)
 
 Lines persist via `localStorage` on your phone.
 

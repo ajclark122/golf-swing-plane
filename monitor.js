@@ -20,8 +20,6 @@ const el = {
   btnUseOffer:   /** @type {HTMLButtonElement}   */ (document.getElementById("btnUseOffer")),
   btnShareAnswer:/** @type {HTMLButtonElement}   */ (document.getElementById("btnShareAnswer")),
   btnCopyAnswer: /** @type {HTMLButtonElement}   */ (document.getElementById("btnCopyAnswer")),
-  btnResetPair:  /** @type {HTMLButtonElement}   */ (document.getElementById("btnResetPair")),
-  btnResetPair2: /** @type {HTMLButtonElement}   */ (document.getElementById("btnResetPair2")),
 };
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -280,10 +278,6 @@ function init() {
 
   el.btnShareAnswer.addEventListener("click", () => shareAnswer().catch(() => copyAnswer()));
   el.btnCopyAnswer.addEventListener("click",  () => copyAnswer());
-
-  const doReset = () => resetAll();
-  el.btnResetPair.addEventListener("click",  doReset);
-  el.btnResetPair2.addEventListener("click", doReset);
 }
 
 init();

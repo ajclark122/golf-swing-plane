@@ -110,8 +110,6 @@ const el = {
   monitorPairStatus:    /** @type {HTMLDivElement} */ (document.getElementById("monitorPairStatus")),
   btnMonitorClose:      /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorClose")),
   btnMonitorShare:      /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorShare")),
-  btnMonitorCopyOffer:  /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorCopyOffer")),
-  btnMonitorNewOffer:   /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorNewOffer")),
   btnMonitorPasteAnswer:/** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorPasteAnswer")),
   monitorAnswerText:    /** @type {HTMLTextAreaElement} */ (document.getElementById("monitorAnswerText")),
   btnMonitorUseAnswer:  /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorUseAnswer")),
@@ -267,7 +265,7 @@ async function monitorNewOffer() {
   const base = new URL("./monitor.html", location.href).href.split("#")[0];
   monitor.offerUrl = `${base}#o=${encoded}`;
 
-  monitorSetStatus("Link ready — Share to iPad or Copy link");
+  monitorSetStatus("Ready — tap Pair Monitor");
 }
 
 /** Open the native Share Sheet (AirDrop etc.) with the offer URL. */
@@ -278,23 +276,9 @@ async function monitorShare() {
       await navigator.share({ url: monitor.offerUrl, title: "Golf Monitor" });
     } catch (e) {
       if (!(e instanceof Error) || e.name !== "AbortError") {
-        monitorSetStatus("Share failed — use Copy link instead");
+        monitorSetStatus("Share failed — try again");
       }
     }
-  } else {
-    // Browser doesn't support share; fall back to copy.
-    await monitorCopyOfferLink();
-  }
-}
-
-/** Copy the offer URL to the clipboard. */
-async function monitorCopyOfferLink() {
-  if (!monitor.offerUrl) await monitorNewOffer();
-  try {
-    await navigator.clipboard.writeText(monitor.offerUrl);
-    monitorSetStatus("Link copied — open on iPad, tap 'Paste from iPhone'");
-  } catch {
-    monitorSetStatus("Couldn't auto-copy. Long-press the address bar to copy the URL manually.");
   }
 }
 
@@ -1489,8 +1473,6 @@ function init() {
     }, { passive: true });
   }
   el.btnMonitorShare?.addEventListener("click",        () => monitorShare().catch((e)           => monitorSetStatus(e instanceof Error ? e.message : "Share failed")));
-  el.btnMonitorCopyOffer?.addEventListener("click",   () => monitorCopyOfferLink().catch((e)    => monitorSetStatus(e instanceof Error ? e.message : "Copy failed")));
-  el.btnMonitorNewOffer?.addEventListener("click",    () => monitorNewOffer().catch((e)          => monitorSetStatus(e instanceof Error ? e.message : "Failed to generate link")));
   el.btnMonitorPasteAnswer?.addEventListener("click", () => monitorPasteAnswer().catch((e)      => monitorSetStatus(e instanceof Error ? e.message : "Paste failed")));
   el.btnMonitorUseAnswer?.addEventListener("click",   () => monitorApplyAnswer(el.monitorAnswerText?.value?.trim() ?? "").catch(() => {}));
 

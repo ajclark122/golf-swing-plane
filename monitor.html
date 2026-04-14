@@ -40,14 +40,13 @@
 
       <section class="monitorPair" aria-label="Pairing">
         <div class="monitorPairCard">
-          <div class="monitorPairTitle">Connect</div>
+          <div class="monitorPairTitle">Monitor</div>
 
           <!-- Shown before an offer arrives -->
           <div id="pairIdle">
-            <div class="monitorPairHint">Open the link from iPhone to pair automatically, or paste the offer text manually.</div>
+            <div class="monitorPairHint">This page should open from iPhone via AirDrop.</div>
             <div class="monitorPairRow">
               <button class="btn primary" type="button" id="btnPasteOffer">Paste from iPhone</button>
-              <button class="btn" type="button" id="btnResetPair">Reset</button>
             </div>
             <div id="panePaste" hidden>
               <textarea id="offerText" class="monitorText" rows="4" spellcheck="false" autocapitalize="off" placeholder="Paste the link or offer text here…"></textarea>
@@ -61,9 +60,8 @@
           <div id="pairAnswer" hidden>
             <div class="monitorPairHint" id="answerHint">Answer ready</div>
             <div class="monitorPairRow">
-              <button class="btn primary" type="button" id="btnShareAnswer">Share to iPhone</button>
-              <button class="btn" type="button" id="btnCopyAnswer">Copy Answer</button>
-              <button class="btn" type="button" id="btnResetPair2">Reset</button>
+              <button class="btn primary" type="button" id="btnShareAnswer">Send back to iPhone</button>
+              <button class="btn" type="button" id="btnCopyAnswer">Copy (fallback)</button>
             </div>
           </div>
         </div>

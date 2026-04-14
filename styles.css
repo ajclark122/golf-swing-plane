@@ -1,0 +1,170 @@
+:root {
+  color-scheme: dark;
+  --bg: #070a12;
+  --panel: rgba(12, 16, 26, 0.72);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.68);
+  --primary: #4f7cff;
+  --danger: #ff5a6b;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+.app {
+  height: 100%;
+}
+
+.stage {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+}
+
+.video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.hud {
+  position: absolute;
+  left: env(safe-area-inset-left);
+  right: env(safe-area-inset-right);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  margin: 10px;
+  border-radius: 14px;
+}
+
+.hud.top {
+  top: env(safe-area-inset-top);
+  justify-content: space-between;
+}
+
+.hud.bottom {
+  bottom: env(safe-area-inset-bottom);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.status {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+.btn.primary {
+  background: color-mix(in oklab, var(--primary) 32%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in oklab, var(--primary) 42%, var(--panel-border));
+}
+
+.btn.danger {
+  background: color-mix(in oklab, var(--danger) 26%, rgba(255, 255, 255, 0.06));
+  border-color: color-mix(in oklab, var(--danger) 42%, var(--panel-border));
+}
+
+.btn.small {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.help {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.help.show {
+  display: flex;
+}
+
+.helpCard {
+  width: min(520px, 100%);
+  background: rgba(12, 16, 26, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.helpTitle {
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.helpList {
+  margin: 0 0 12px 18px;
+  padding: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+@supports not (color-mix(in oklab, white 50%, black)) {
+  .btn.primary {
+    background: rgba(79, 124, 255, 0.28);
+    border-color: rgba(79, 124, 255, 0.42);
+  }
+  .btn.danger {
+    background: rgba(255, 90, 107, 0.22);
+    border-color: rgba(255, 90, 107, 0.4);
+  }
+}
+

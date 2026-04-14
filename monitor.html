@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f19" />
+    <title>Golf Monitor</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="monitorRoot" aria-label="Swing monitor">
+      <header class="monitorHeader">
+        <div class="monitorTitle">
+          <div class="brandMark" aria-hidden="true"></div>
+          <div>
+            <div class="monitorTitleTop">Golf Monitor</div>
+            <div class="monitorTitleSub">Live swing-plane tiles (no video)</div>
+          </div>
+        </div>
+        <div class="monitorStatus" id="monitorStatus" role="status" aria-live="polite">Not paired</div>
+      </header>
+
+      <section class="monitorGrid" aria-label="Swing tiles">
+        <div class="monitorTile live" id="tileLive">
+          <div class="monitorTileLabel">Live</div>
+          <div class="monitorTileBig" id="liveIcon">—</div>
+          <div class="monitorTileMeta" id="liveMeta">Waiting…</div>
+        </div>
+        <div class="monitorTile backswing" id="tileBackswing">
+          <div class="monitorTileLabel">Backswing</div>
+          <div class="monitorTileBig" id="backIcon">—</div>
+          <div class="monitorTileMeta" id="backMeta">No data</div>
+        </div>
+        <div class="monitorTile downswing" id="tileDownswing">
+          <div class="monitorTileLabel">Downswing</div>
+          <div class="monitorTileBig" id="downIcon">—</div>
+          <div class="monitorTileMeta" id="downMeta">No data</div>
+        </div>
+      </section>
+
+      <section class="monitorPair" aria-label="Pairing">
+        <div class="monitorPairCard">
+          <div class="monitorPairTitle">Pairing</div>
+          <div class="monitorPairRow">
+            <button class="btn primary" type="button" id="btnScanOffer">Scan iPhone Offer</button>
+            <button class="btn" type="button" id="btnPasteOffer">Paste Offer</button>
+          </div>
+
+          <div class="monitorPairBody">
+            <div class="monitorPairPane" id="paneScanner" hidden>
+              <div class="monitorPairHint">Point the iPad camera at the iPhone offer QR.</div>
+              <div id="qrReader" class="monitorQrReader" aria-label="QR scanner"></div>
+              <div class="monitorPairRow">
+                <button class="btn danger" type="button" id="btnStopScan">Stop scan</button>
+              </div>
+            </div>
+
+            <div class="monitorPairPane" id="panePaste" hidden>
+              <div class="monitorPairHint">Paste the iPhone offer text.</div>
+              <textarea id="offerText" class="monitorText" rows="5" spellcheck="false" autocapitalize="off"></textarea>
+              <div class="monitorPairRow">
+                <button class="btn primary" type="button" id="btnUseOffer">Use offer</button>
+              </div>
+            </div>
+
+            <div class="monitorPairPane" id="paneAnswer" hidden>
+              <div class="monitorPairHint">Show this answer to the iPhone (scan or copy/paste).</div>
+              <canvas id="answerQr" class="monitorQrCanvas" width="260" height="260" aria-label="Answer QR"></canvas>
+              <textarea id="answerText" class="monitorText" rows="4" spellcheck="false" readonly></textarea>
+              <div class="monitorPairRow">
+                <button class="btn" type="button" id="btnCopyAnswer">Copy answer</button>
+                <button class="btn" type="button" id="btnResetPair">Reset</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.10/html5-qrcode.min.js"></script>
+    <script type="module" src="./monitor.js"></script>
+  </body>
+</html>
+

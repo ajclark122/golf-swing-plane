@@ -20,12 +20,13 @@ const SWING_PLANE_COLOR = "#ffd44d";
 /** @typedef {{id:string,x1:number,y1:number,x2:number,y2:number,color:string,width:number}} Line */
 
 const state = {
-  stream:     /** @type {MediaStream|null} */ (null),
-  lines:      /** @type {Line[]} */ ([]),
-  selectedId: /** @type {string|null} */ (null),
+  stream:      /** @type {MediaStream|null} */ (null),
+  lines:       /** @type {Line[]} */ ([]),
+  selectedId:  /** @type {string|null} */ (null),
   drag: /** @type {null|{lineId:string,mode:"end1"|"end2"|"body",startNx:number,startNy:number,base:Line}} */ (null),
-  ready: false,
-  view: /** @type {"front"|"side"} */ ("front"),
+  ready:       false,
+  view:        /** @type {"front"|"side"} */ ("front"),
+  handedness:  /** @type {"right"|"left"} */ ("right"),
 
   recording: {
     active:          false,
@@ -45,12 +46,10 @@ const state = {
 
   /**
    * Dedicated amber swing-plane line (Side view only).
-   * Auto-proposed from pose at address; draggable by user.
-   * dirty=true once the user has manually repositioned it.
+   * Auto-proposed from pose at address — display-only, not user-draggable.
    */
   swingPlaneLine: {
-    line:  /** @type {Line} */ ({ id: "swingplane", x1: 0.70, y1: 0.25, x2: 0.35, y2: 0.72, color: SWING_PLANE_COLOR, width: 3 }),
-    dirty: false,
+    line: /** @type {Line} */ ({ id: "swingplane", x1: 0.70, y1: 0.25, x2: 0.35, y2: 0.72, color: SWING_PLANE_COLOR, width: 3 }),
   },
 
   /** MoveNet pose tracking. */
@@ -90,7 +89,10 @@ const el = {
   btnDelete:      /** @type {HTMLButtonElement} */ (document.getElementById("btnDelete")),
   btnReset:       /** @type {HTMLButtonElement} */ (document.getElementById("btnReset")),
   btnRecalibrate: /** @type {HTMLButtonElement} */ (document.getElementById("btnRecalibrate")),
+  btnHandRight:   /** @type {HTMLButtonElement} */ (document.getElementById("btnHandRight")),
+  btnHandLeft:    /** @type {HTMLButtonElement} */ (document.getElementById("btnHandLeft")),
   fps:            /** @type {HTMLSelectElement} */ (document.getElementById("fps")),
+  btnMonitorPair: /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorPair")),
   btnRecord:      /** @type {HTMLButtonElement} */ (document.getElementById("btnRecord")),
   btnStopRec:     /** @type {HTMLButtonElement} */ (document.getElementById("btnStopRec")),
   btnStopFloat:   /** @type {HTMLButtonElement} */ (document.getElementById("btnStopFloat")),
@@ -99,6 +101,21 @@ const el = {
   btnDismissHelp: /** @type {HTMLButtonElement} */ (document.getElementById("btnDismissHelp")),
   assessment:     /** @type {HTMLDivElement}    */ (document.getElementById("assessment")),
   swingSummary:   /** @type {HTMLDivElement}    */ (document.getElementById("swingSummary")),
+
+  // iPhone monitor pairing panel
+  monitorPanel:       /** @type {HTMLDivElement} */ (document.getElementById("monitorPanel")),
+  monitorPairStatus:  /** @type {HTMLDivElement} */ (document.getElementById("monitorPairStatus")),
+  btnMonitorClose:    /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorClose")),
+  monitorOfferQr:     /** @type {HTMLCanvasElement} */ (document.getElementById("monitorOfferQr")),
+  monitorOfferText:   /** @type {HTMLTextAreaElement} */ (document.getElementById("monitorOfferText")),
+  btnMonitorNewOffer: /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorNewOffer")),
+  btnMonitorCopyOffer:/** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorCopyOffer")),
+  btnMonitorScanAnswer: /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorScanAnswer")),
+  btnMonitorPasteAnswer:/** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorPasteAnswer")),
+  btnMonitorStopScan:   /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorStopScan")),
+  monitorAnswerReader:  /** @type {HTMLDivElement} */ (document.getElementById("monitorAnswerReader")),
+  monitorAnswerText:    /** @type {HTMLTextAreaElement} */ (document.getElementById("monitorAnswerText")),
+  btnMonitorUseAnswer:  /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorUseAnswer")),
 };
 
 const ctx = el.canvas.getContext("2d", { alpha: true });
@@ -111,6 +128,239 @@ function setStatus(msg) { el.status.textContent = msg; }
 function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
 function uid() { return Math.random().toString(16).slice(2) + Date.now().toString(16); }
+
+// ── Monitor (WebRTC DataChannel) ───────────────────────────────────────────────
+
+const monitor = {
+  pc: /** @type {RTCPeerConnection|null} */ (null),
+  dc: /** @type {RTCDataChannel|null} */ (null),
+  qr: /** @type {any|null} */ (null),
+  connected: false,
+  lastSentAt: 0,
+  lastKey: "",
+};
+
+function monitorSetStatus(msg) {
+  if (el.monitorPairStatus) el.monitorPairStatus.textContent = msg;
+}
+
+function monitorShowPanel(show) {
+  if (!el.monitorPanel) return;
+  el.monitorPanel.classList.toggle("show", show);
+  el.monitorPanel.setAttribute("aria-hidden", show ? "false" : "true");
+}
+
+function monitorResetPeer() {
+  try { monitor.dc?.close(); } catch { /* ignore */ }
+  try { monitor.pc?.close(); } catch { /* ignore */ }
+  monitor.dc = null;
+  monitor.pc = null;
+  monitor.connected = false;
+  monitor.lastSentAt = 0;
+  monitor.lastKey = "";
+  monitorStopScan();
+}
+
+function monitorCreatePeer() {
+  const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    if (s === "connected") {
+      monitor.connected = true;
+      monitorSetStatus("Paired (connected). You can start the camera.");
+    } else if (s === "disconnected" || s === "failed") {
+      monitor.connected = false;
+      monitorSetStatus("Disconnected.");
+    }
+  };
+  return pc;
+}
+
+function monitorAttachDataChannel(dc) {
+  monitor.dc = dc;
+  monitor.dc.onopen = () => { monitor.connected = true; monitorSetStatus("Paired (receiving on iPad)."); };
+  monitor.dc.onclose = () => { monitor.connected = false; monitorSetStatus("Disconnected."); };
+  monitor.dc.onerror = () => { monitor.connected = false; monitorSetStatus("Data channel error."); };
+}
+
+async function monitorWaitForIce(pc, timeoutMs = 2200) {
+  if (pc.iceGatheringState === "complete") return;
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      pc.removeEventListener("icegatheringstatechange", onState);
+      clearTimeout(timer);
+      resolve();
+    };
+    const onState = () => { if (pc.iceGatheringState === "complete") finish(); };
+    const timer = setTimeout(finish, timeoutMs);
+    pc.addEventListener("icegatheringstatechange", onState);
+  });
+}
+
+function monitorBase64UrlEncode(bytes) {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function monitorBase64UrlDecode(text) {
+  let s = String(text || "").trim().replace(/-/g, "+").replace(/_/g, "/");
+  const pad = s.length % 4;
+  if (pad) s += "=".repeat(4 - pad);
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function monitorEncodeSignal(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  return monitorBase64UrlEncode(bytes);
+}
+
+function monitorDecodeSignal(text) {
+  const bytes = monitorBase64UrlDecode(text);
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function monitorDrawQr(canvas, text) {
+  // QRCode is global from qrcode.min.js
+  // @ts-ignore
+  await QRCode.toCanvas(canvas, text, {
+    errorCorrectionLevel: "M",
+    margin: 1,
+    width: canvas.width,
+    color: { dark: "#ffffff", light: "#00000000" },
+  });
+}
+
+async function monitorNewOffer() {
+  monitorResetPeer();
+  monitorSetStatus("Creating offer…");
+
+  monitor.pc = monitorCreatePeer();
+  const dc = monitor.pc.createDataChannel("monitor");
+  monitorAttachDataChannel(dc);
+
+  const offer = await monitor.pc.createOffer();
+  await monitor.pc.setLocalDescription(offer);
+  await monitorWaitForIce(monitor.pc, 2400);
+
+  const local = monitor.pc.localDescription;
+  if (!local) throw new Error("No local description");
+
+  const encoded = monitorEncodeSignal({ type: local.type, sdp: local.sdp });
+  if (el.monitorOfferText) el.monitorOfferText.value = encoded;
+  if (el.monitorOfferQr) await monitorDrawQr(el.monitorOfferQr, encoded);
+  monitorSetStatus("Step 1: iPad scans offer. Step 2: scan/paste answer.");
+}
+
+async function monitorUseAnswerText(text) {
+  if (!monitor.pc) throw new Error("No offer yet");
+  const answer = monitorDecodeSignal(text);
+  if (!answer?.type || !answer?.sdp) throw new Error("Invalid answer");
+  monitorSetStatus("Connecting…");
+  await monitor.pc.setRemoteDescription(answer);
+  monitorSetStatus("Connected (waiting for data channel)…");
+}
+
+function monitorStopScan() {
+  if (!monitor.qr) return;
+  const q = monitor.qr;
+  monitor.qr = null;
+  q.stop?.().catch(() => {}).finally(() => q.clear?.());
+  if (el.monitorAnswerReader) el.monitorAnswerReader.hidden = true;
+  if (el.btnMonitorStopScan) el.btnMonitorStopScan.hidden = true;
+}
+
+async function monitorScanAnswer() {
+  monitorStopScan();
+  if (!el.monitorAnswerReader) return;
+  if (!monitor.pc) await monitorNewOffer();
+
+  el.monitorAnswerReader.hidden = false;
+  if (el.monitorAnswerText) el.monitorAnswerText.hidden = true;
+  if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = true;
+  if (el.btnMonitorStopScan) el.btnMonitorStopScan.hidden = false;
+
+  // Html5Qrcode is global from html5-qrcode.min.js
+  // @ts-ignore
+  const Html5Qrcode = window.Html5Qrcode;
+  if (!Html5Qrcode) throw new Error("QR scanner unavailable");
+
+  monitor.qr = new Html5Qrcode("monitorAnswerReader");
+  monitorSetStatus("Scanning answer…");
+
+  // @ts-ignore
+  const cameras = await Html5Qrcode.getCameras();
+  const cameraId = cameras?.[0]?.id;
+  if (!cameraId) throw new Error("No camera found");
+
+  await monitor.qr.start(
+    { deviceId: { exact: cameraId } },
+    { fps: 10, qrbox: { width: 240, height: 240 } },
+    async (decodedText) => {
+      monitorStopScan();
+      if (el.monitorAnswerText) el.monitorAnswerText.value = decodedText;
+      await monitorUseAnswerText(decodedText);
+    }
+  );
+}
+
+function monitorPasteAnswerMode() {
+  monitorStopScan();
+  if (el.monitorAnswerReader) el.monitorAnswerReader.hidden = true;
+  if (el.monitorAnswerText) el.monitorAnswerText.hidden = false;
+  if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = false;
+  monitorSetStatus("Paste the iPad answer, then tap Connect.");
+}
+
+async function monitorCopyOffer() {
+  const text = el.monitorOfferText?.value?.trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    monitorSetStatus("Offer copied.");
+  } catch {
+    el.monitorOfferText?.focus();
+    el.monitorOfferText?.select();
+    monitorSetStatus("Select + copy offer.");
+  }
+}
+
+function monitorMaybeSendLive() {
+  if (!monitor.connected || !monitor.dc || monitor.dc.readyState !== "open") return;
+  const now = Date.now();
+  if (now - monitor.lastSentAt < 100) return; // 10 Hz max
+
+  const msg = {
+    t: now,
+    view: state.view,
+    phase: state.pose.phase,
+    plane: state.pose.planeResult,
+  };
+  const key = `${msg.view}|${msg.phase}|${msg.plane ?? "null"}`;
+  if (key === monitor.lastKey && now - monitor.lastSentAt < 250) return;
+
+  monitor.lastKey = key;
+  monitor.lastSentAt = now;
+  try { monitor.dc.send(JSON.stringify(msg)); } catch { /* ignore */ }
+}
+
+function monitorSendSummary(backswingDominant, downswingDominant) {
+  if (!monitor.connected || !monitor.dc || monitor.dc.readyState !== "open") return;
+  const msg = {
+    type: "summary",
+    t: Date.now(),
+    backswingDominant,
+    downswingDominant,
+  };
+  try { monitor.dc.send(JSON.stringify(msg)); } catch { /* ignore */ }
+}
 
 /**
  * Draw videoEl into ctx2d at destW×destH using object-fit:cover semantics.
@@ -193,21 +443,16 @@ function loadSwingPlaneLine() {
           x2: clamp01(p.x2), y2: clamp01(p.y2),
           color: SWING_PLANE_COLOR, width: 3,
         };
-        state.swingPlaneLine.dirty = !!p.dirty;
         return;
       }
     }
   } catch { /* ignore */ }
-  state.swingPlaneLine.line  = defaultSwingPlaneLine();
-  state.swingPlaneLine.dirty = false;
+  state.swingPlaneLine.line = defaultSwingPlaneLine();
 }
 
 function saveSwingPlaneLine() {
   try {
-    localStorage.setItem(STORAGE_SWING_PLANE, JSON.stringify({
-      ...state.swingPlaneLine.line,
-      dirty: state.swingPlaneLine.dirty,
-    }));
+    localStorage.setItem(STORAGE_SWING_PLANE, JSON.stringify(state.swingPlaneLine.line));
   } catch { /* ignore */ }
 }
 
@@ -215,8 +460,7 @@ function saveSwingPlaneLine() {
 
 function selectLine(id) {
   state.selectedId = id;
-  el.btnDelete.disabled      = !id || id === "swingplane"; // swing-plane line cannot be deleted
-  if (el.btnRecalibrate) el.btnRecalibrate.disabled = (id !== "swingplane");
+  el.btnDelete.disabled = !id;
   render();
 }
 
@@ -236,7 +480,7 @@ function addLine() {
 }
 
 function deleteSelected() {
-  if (!state.selectedId || state.selectedId === "swingplane") return;
+  if (!state.selectedId) return;
   state.lines = state.lines.filter((l) => l.id !== state.selectedId);
   state.selectedId = null;
   saveLinesForView(state.view);
@@ -247,14 +491,12 @@ function deleteSelected() {
 
 function resetAll() {
   state.lines = defaultLinesForView(state.view);
-  state.swingPlaneLine.line  = defaultSwingPlaneLine();
-  state.swingPlaneLine.dirty = false;
+  state.swingPlaneLine.line = defaultSwingPlaneLine();
   state.selectedId = null;
   state.drag       = null;
   saveLinesForView(state.view);
   saveSwingPlaneLine();
   el.btnDelete.disabled = true;
-  if (el.btnRecalibrate) el.btnRecalibrate.disabled = true;
   setStatus("Reset");
   render();
 }
@@ -288,8 +530,8 @@ function pointToSegmentDistance2(px, py, ax, ay, bx, by) {
 }
 
 /**
- * Hit-test a point (nx, ny) against all draggable lines.
- * In Side view the swing-plane line is checked first (rendered on top).
+ * Hit-test a point (nx, ny) against all user-draggable lines.
+ * The swing-plane line is display-only and excluded from hit-testing.
  */
 function hitTest(nx, ny) {
   const box = getCanvasBox();
@@ -304,12 +546,6 @@ function hitTest(nx, ny) {
     if (dist2(px, py, bx, by) <= handleR2) return { lineId: l.id, mode: "end2" };
     if (pointToSegmentDistance2(px, py, ax, ay, bx, by) <= lineT2) return { lineId: l.id, mode: "body" };
     return null;
-  }
-
-  // Swing-plane line takes priority in Side view (it's rendered on top)
-  if (state.view === "side") {
-    const hit = checkLine(state.swingPlaneLine.line);
-    if (hit) return hit;
   }
 
   for (let i = state.lines.length - 1; i >= 0; i--) {
@@ -395,7 +631,7 @@ function render() {
   }
 
   if (state.view === "side") {
-    drawLineOnCtx(ctx, state.swingPlaneLine.line, r.width, r.height, state.selectedId === "swingplane", HR);
+    drawLineOnCtx(ctx, state.swingPlaneLine.line, r.width, r.height, false, HR);
 
     if (state.pose.lastWristNorm) {
       const color = state.pose.planeResult === "above" ? "#ff6b85"
@@ -430,6 +666,7 @@ async function startCamera() {
     el.btnReset.disabled  = false;
     el.btnRecord.disabled = false;
     el.fps.disabled       = false;
+    if (el.btnRecalibrate) el.btnRecalibrate.disabled = (state.view !== "side");
     el.btnStartStop.textContent = "Stop camera";
     setStatus(`Live (${state.lines.length} line${state.lines.length === 1 ? "" : "s"})`);
     resizeCanvasToStage();
@@ -455,6 +692,7 @@ function stopCamera() {
   el.btnRecord.disabled = true;
   el.btnStopRec.disabled = true;
   el.fps.disabled        = true;
+  if (el.btnRecalibrate) el.btnRecalibrate.disabled = true;
   el.btnStartStop.textContent = "Start camera";
   setStatus("Camera stopped");
   setHudHidden(false);
@@ -472,9 +710,7 @@ function onPointerDown(e) {
   const hit = hitTest(nx, ny);
   if (!hit) { selectLine(null); return; }
 
-  const baseLine = hit.lineId === "swingplane"
-    ? { ...state.swingPlaneLine.line }
-    : (() => { const l = state.lines.find((l) => l.id === hit.lineId); return l ? { ...l } : null; })();
+  const baseLine = (() => { const l = state.lines.find((l) => l.id === hit.lineId); return l ? { ...l } : null; })();
   if (!baseLine) return;
 
   selectLine(hit.lineId);
@@ -489,15 +725,6 @@ function onPointerMove(e) {
   const dx = nx - d.startNx, dy = ny - d.startNy;
   const b  = d.base;
 
-  if (d.lineId === "swingplane") {
-    const update = d.mode === "end1" ? { x1: clamp01(b.x1 + dx), y1: clamp01(b.y1 + dy) }
-      : d.mode === "end2"            ? { x2: clamp01(b.x2 + dx), y2: clamp01(b.y2 + dy) }
-      : { x1: clamp01(b.x1 + dx), y1: clamp01(b.y1 + dy), x2: clamp01(b.x2 + dx), y2: clamp01(b.y2 + dy) };
-    state.swingPlaneLine.line = { ...state.swingPlaneLine.line, ...update };
-    render();
-    return;
-  }
-
   state.lines = state.lines.map((l) => {
     if (l.id !== d.lineId) return l;
     if (d.mode === "end1") return { ...l, x1: clamp01(b.x1 + dx), y1: clamp01(b.y1 + dy) };
@@ -509,14 +736,21 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (!state.drag) return;
-  if (state.drag.lineId === "swingplane") {
-    state.swingPlaneLine.dirty = true;
-    saveSwingPlaneLine();
-  } else {
-    saveLinesForView(state.view);
-  }
+  saveLinesForView(state.view);
   state.drag = null;
   try { el.canvas.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+}
+
+// ── Handedness ────────────────────────────────────────────────────────────────
+
+function setHandedness(h) {
+  if (state.handedness === h) return;
+  state.handedness = h;
+  localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps?.value || "30", handedness: h }));
+  el.btnHandRight.classList.toggle("active", h === "right");
+  el.btnHandLeft.classList.toggle("active",  h === "left");
+  // Reset stable-frame counter so the plane line re-snaps immediately at next address frame
+  state.pose.stableFrames = 0;
 }
 
 // ── View toggle ───────────────────────────────────────────────────────────────
@@ -524,9 +758,10 @@ function onPointerUp(e) {
 function setView(view) {
   if (state.view === view) return;
   state.view = view;
-  localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps?.value || "30" }));
+  localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps?.value || "30", handedness: state.handedness }));
   el.btnViewFront.classList.toggle("active", view === "front");
   el.btnViewSide.classList.toggle("active",  view === "side");
+  if (el.btnRecalibrate) el.btnRecalibrate.disabled = !(state.ready && view === "side");
   loadLinesForView(view);
   selectLine(null);
   resetPoseState();
@@ -665,8 +900,8 @@ async function startRecording() {
     el.fps.disabled          = false;
     el.btnViewFront.disabled = false;
     el.btnViewSide.disabled  = false;
-    el.btnDelete.disabled    = !state.selectedId || state.selectedId === "swingplane";
-    if (el.btnRecalibrate) el.btnRecalibrate.disabled = state.selectedId !== "swingplane";
+    el.btnDelete.disabled    = !state.selectedId;
+    if (el.btnRecalibrate) el.btnRecalibrate.disabled = !(state.ready && state.view === "side");
 
     bumpUiActivity();
     setStatus(`Saved (${ext.toUpperCase()})`);
@@ -866,6 +1101,7 @@ async function runPoseInference() {
 
   render();
   renderAssessment();
+  monitorMaybeSendLive();
 }
 
 /**
@@ -925,32 +1161,34 @@ function detectPhase(handsY, timestamp) {
 }
 
 /**
- * Auto-propose the swing-plane line from forearm geometry while at address.
- * Called every inference frame when phase === "address" and dirty === false.
+ * Auto-propose the swing-plane line while the golfer is at address.
+ * Called every inference frame while phase === "address".
  *
- * Geometry:
- *  - Direction: elbow→wrist (forearm vector) — better club shaft proxy than shoulder→wrist
- *  - Upper bound: projected to Y = 0.12 (top of useful frame)
- *  - Lower bound: ankle height + 2% (≈ ball/ground level) if ankles visible, else Y = 0.85
+ * Geometry rationale:
+ *  The club shaft runs from the HANDS down to the BALL (ground level, near the feet).
+ *  The correct direction vector is therefore  hands → ankle/ground, NOT elbow→wrist.
+ *  (elbow→wrist is nearly vertical at address because the forearms hang down — the
+ *  club shaft angle comes from the *horizontal* offset between ball and hands.)
  *
- * EMA smoothing (α = 0.25) prevents jitter; updates settle in ~4 frames (~0.4 s at 10 pose-fps).
- * localStorage writes are throttled to every 10 stable frames to avoid excessive I/O.
+ *  Primary:  hands → ankle midpoint  (ankles ≈ ball/ground height)
+ *  Fallback: elbow → wrist direction (used only when ankles aren't visible)
+ *
+ * EMA smoothing (α = 0.25) prevents jitter; snaps directly on the first address frame.
+ * localStorage writes are throttled to every 10 stable frames.
  */
 function autoProposePlaneLine(keypoints) {
-  if (state.swingPlaneLine.dirty) return;
-
   const MIN_CONF   = 0.40;
   const ANKLE_CONF = 0.35;
 
-  const le = keypoints[7],  re = keypoints[8];  // left/right elbow
-  const lw = keypoints[9],  rw = keypoints[10]; // left/right wrist
-  const la = keypoints[15], ra = keypoints[16]; // left/right ankle
+  const lw = keypoints[9],  rw = keypoints[10]; // wrists
+  const le = keypoints[7],  re = keypoints[8];  // elbows (fallback)
+  const la = keypoints[15], ra = keypoints[16]; // ankles (MoveNet: la = player left, ra = player right)
 
-  const leOk = le && le.score >= MIN_CONF,   reOk = re && re.score >= MIN_CONF;
-  const lwOk = lw && lw.score >= MIN_CONF,   rwOk = rw && rw.score >= MIN_CONF;
+  const lwOk = lw && lw.score >= MIN_CONF, rwOk = rw && rw.score >= MIN_CONF;
+  const leOk = le && le.score >= MIN_CONF, reOk = re && re.score >= MIN_CONF;
   const laOk = la && la.score >= ANKLE_CONF, raOk = ra && ra.score >= ANKLE_CONF;
 
-  if ((!lwOk && !rwOk) || (!leOk && !reOk)) return;
+  if (!lwOk && !rwOk) return;
 
   const toO  = (kp) => movenetToOverlay(kp.x, kp.y);
   const midO = (a, b) => {
@@ -959,38 +1197,58 @@ function autoProposePlaneLine(keypoints) {
   };
 
   const handsO = midO(lwOk ? lw : null, rwOk ? rw : null);
-  const elbowO = midO(leOk ? le : null, reOk ? re : null);
 
-  // Forearm unit vector: elbow → wrist (roughly collinear with club shaft at address)
-  const dx  = handsO.x - elbowO.x;
-  const dy  = handsO.y - elbowO.y;
+  let dx, dy, bottomY;
+
+  if (laOk || raOk) {
+    // ── Primary: hands → lead ankle ──────────────────────────────────────────
+    // Ball sits near the lead foot regardless of club length (driver: off lead
+    // foot; short irons: just inside lead foot). Using the lead ankle as the
+    // ground anchor gives a more accurate shaft angle across all clubs compared
+    // to the ankle midpoint (which only works well for mid-irons).
+    //
+    // MoveNet kp 15 = player's left ankle; kp 16 = player's right ankle.
+    // Right-handed golfer → left ankle is lead; left-handed → right ankle is lead.
+    const isRightHanded = state.handedness === "right";
+    const leadAnkle  = isRightHanded ? (laOk ? la : ra) : (raOk ? ra : la);
+    const leadAnkleOk = isRightHanded ? laOk : raOk;
+    // Only fall through to trail ankle if lead is not visible
+    const anchorKp = leadAnkleOk ? leadAnkle : (isRightHanded ? ra : la);
+
+    const ankleO = toO(anchorKp);
+    dx      = ankleO.nx - handsO.x;
+    dy      = ankleO.ny - handsO.y;
+    bottomY = clamp01(ankleO.ny + 0.02); // 2% below ankle ≈ ball on ground
+  } else if (leOk || reOk) {
+    // ── Fallback: elbow → wrist direction (ankles off-screen) ─────────────────
+    const elbowO = midO(leOk ? le : null, reOk ? re : null);
+    dx      = handsO.x - elbowO.x;
+    dy      = handsO.y - elbowO.y;
+    bottomY = 0.85;
+  } else {
+    return; // can't determine direction without ankles or elbows
+  }
+
   const len = Math.sqrt(dx * dx + dy * dy) || 1;
   const ux  = dx / len;
   const uy  = dy / len;
 
-  if (Math.abs(uy) < 0.01) return; // forearm nearly horizontal — can't project usefully
+  // Need a meaningful vertical component to project along Y axis
+  if (Math.abs(uy) < 0.01) return;
 
-  // Lower anchor: ankle height + small offset ≈ ball/ground level; fallback to fixed Y
-  let bottomY = 0.85;
-  if (laOk || raOk) {
-    const ankleO = midO(laOk ? la : null, raOk ? ra : null);
-    bottomY = clamp01(ankleO.y + 0.02);
-  }
   const topY = 0.12;
-
-  // t such that handsO.y + t*uy = targetY
-  const t1 = (topY    - handsO.y) / uy;
-  const t2 = (bottomY - handsO.y) / uy;
+  const t1   = (topY    - handsO.y) / uy;
+  const t2   = (bottomY - handsO.y) / uy;
 
   const newX1 = clamp01(handsO.x + t1 * ux);
   const newX2 = clamp01(handsO.x + t2 * ux);
 
-  // EMA smoothing — α=0.25 converges in ~4 frames at 10 pose-fps (≈ 0.4 s)
+  // EMA blend (α = 0.25 → settles in ~4 frames ≈ 0.4 s at 10 pose-fps)
   const EMA = 0.25;
   const cur = state.swingPlaneLine.line;
 
   if (state.pose.stableFrames <= 1) {
-    // First frame back at address: snap directly so there's no blending artifact
+    // First frame at address this session: snap directly, no blending artifact
     state.swingPlaneLine.line = { ...cur, x1: newX1, y1: topY, x2: newX2, y2: bottomY };
   } else {
     state.swingPlaneLine.line = {
@@ -1002,7 +1260,7 @@ function autoProposePlaneLine(keypoints) {
     };
   }
 
-  // Throttle localStorage writes — every 10 stable frames is plenty
+  // Throttle localStorage writes
   if (state.pose.stableFrames % 10 === 0) saveSwingPlaneLine();
 }
 
@@ -1039,10 +1297,10 @@ function triggerSwingSummary() {
   // Require at least a few readings in each phase to avoid noise
   if (state.pose.backswingLog.length < 3 && state.pose.downswingLog.length < 3) return;
   state.pose.swingCompleted = true;
-  showSwingSummary(
-    dominantResult(state.pose.backswingLog),
-    dominantResult(state.pose.downswingLog)
-  );
+  const backswing = dominantResult(state.pose.backswingLog);
+  const downswing = dominantResult(state.pose.downswingLog);
+  monitorSendSummary(backswing, downswing);
+  showSwingSummary(backswing, downswing);
 }
 
 /**
@@ -1130,8 +1388,9 @@ function renderAssessment() {
 function init() {
   try {
     const ui = JSON.parse(localStorage.getItem(STORAGE_UI) || "{}");
-    if (ui.view === "front" || ui.view === "side") state.view = ui.view;
-    if (ui.fps  === "30"    || ui.fps  === "60")   el.fps.value = ui.fps;
+    if (ui.view === "front" || ui.view === "side")     state.view       = ui.view;
+    if (ui.fps  === "30"    || ui.fps  === "60")       el.fps.value     = ui.fps;
+    if (ui.handedness === "right" || ui.handedness === "left") state.handedness = ui.handedness;
   } catch { /* ignore */ }
 
   loadLinesForView(state.view);
@@ -1139,6 +1398,8 @@ function init() {
 
   el.btnViewFront.classList.toggle("active", state.view === "front");
   el.btnViewSide.classList.toggle("active",  state.view === "side");
+  el.btnHandRight.classList.toggle("active", state.handedness === "right");
+  el.btnHandLeft.classList.toggle("active",  state.handedness === "left");
   setStatus("Tap Start camera");
 
   el.btnStartStop.addEventListener("click",  () => (state.ready ? stopCamera() : startCamera()));
@@ -1147,18 +1408,19 @@ function init() {
   el.btnReset.addEventListener("click",      () => resetAll());
   el.btnViewFront.addEventListener("click",  () => setView("front"));
   el.btnViewSide.addEventListener("click",   () => setView("side"));
+  el.btnHandRight.addEventListener("click",  () => setHandedness("right"));
+  el.btnHandLeft.addEventListener("click",   () => setHandedness("left"));
 
   if (el.btnRecalibrate) {
+    // Resets stable-frame counter so the next address frame snaps directly (no EMA blend)
     el.btnRecalibrate.addEventListener("click", () => {
-      state.swingPlaneLine.dirty  = false;
-      state.pose.stableFrames     = 0;
-      saveSwingPlaneLine();
+      state.pose.stableFrames = 0;
       setStatus("Re-calibrating — stand at address…");
     });
   }
 
   el.fps.addEventListener("change", () => {
-    localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps.value }));
+    localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps.value, handedness: state.handedness }));
   });
   el.btnRecord.addEventListener("click",   () => startRecording());
   el.btnStopRec.addEventListener("click",  () => stopRecording());
@@ -1167,6 +1429,42 @@ function init() {
   el.btnDismissHelp.addEventListener("click", () => {
     localStorage.setItem(STORAGE_HELP, "1");
     el.help.classList.remove("show");
+  });
+
+  // Monitor pairing (iPhone sender)
+  if (el.btnMonitorPair) {
+    el.btnMonitorPair.addEventListener("click", async () => {
+      if (state.ready) stopCamera(); // free the camera for QR scanning
+      monitorShowPanel(true);
+      try { await monitorNewOffer(); } catch { monitorSetStatus("Monitor setup failed."); }
+    });
+  }
+  if (el.btnMonitorClose) {
+    el.btnMonitorClose.addEventListener("click", () => {
+      monitorStopScan();
+      monitorShowPanel(false);
+    });
+  }
+  if (el.monitorPanel) {
+    el.monitorPanel.addEventListener("pointerdown", (e) => {
+      // Tap backdrop to close (but not when tapping inside card)
+      if (e.target === el.monitorPanel) {
+        monitorStopScan();
+        monitorShowPanel(false);
+      }
+    }, { passive: true });
+  }
+  el.btnMonitorNewOffer?.addEventListener("click", () => monitorNewOffer().catch(() => monitorSetStatus("Offer failed.")));
+  el.btnMonitorCopyOffer?.addEventListener("click", () => monitorCopyOffer());
+  el.btnMonitorScanAnswer?.addEventListener("click", () => monitorScanAnswer().catch(() => monitorSetStatus("Scan failed.")));
+  el.btnMonitorStopScan?.addEventListener("click", () => { monitorStopScan(); monitorSetStatus("Scan stopped."); });
+  el.btnMonitorPasteAnswer?.addEventListener("click", () => {
+    if (!monitor.pc) monitorNewOffer().catch(() => {});
+    monitorPasteAnswerMode();
+  });
+  el.btnMonitorUseAnswer?.addEventListener("click", () => {
+    const text = el.monitorAnswerText?.value || "";
+    monitorUseAnswerText(text).catch(() => monitorSetStatus("Answer error."));
   });
 
   el.canvas.addEventListener("pointerdown",  (e) => { bumpUiActivity(); onPointerDown(e); }, { passive: true });

@@ -49,6 +49,7 @@ const el = {
   fps: /** @type {HTMLSelectElement} */ (document.getElementById("fps")),
   btnRecord: /** @type {HTMLButtonElement} */ (document.getElementById("btnRecord")),
   btnStopRec: /** @type {HTMLButtonElement} */ (document.getElementById("btnStopRec")),
+  btnStopFloat: /** @type {HTMLButtonElement} */ (document.getElementById("btnStopFloat")),
   countdown: /** @type {HTMLDivElement} */ (document.getElementById("countdown")),
   help: /** @type {HTMLDivElement} */ (document.getElementById("help")),
   btnDismissHelp: /** @type {HTMLButtonElement} */ (document.getElementById("btnDismissHelp")),
@@ -551,6 +552,8 @@ async function startRecording() {
   // Hide controls while recording (keep minimal stop button enabled)
   state.recording.active = true;
   setHudHidden(true);
+  el.btnStopFloat.classList.add("show");
+  el.btnStopFloat.disabled = false;
   el.btnStopRec.disabled = false;
   el.btnRecord.disabled = true;
   el.btnAdd.disabled = true;
@@ -594,6 +597,8 @@ async function startRecording() {
     // Restore UI
     state.recording.active = false;
     setHudHidden(false);
+    el.btnStopFloat.classList.remove("show");
+    el.btnStopFloat.disabled = true;
     el.btnStopRec.disabled = true;
     el.btnRecord.disabled = false;
     el.btnAdd.disabled = false;
@@ -645,6 +650,7 @@ function init() {
   });
   el.btnRecord.addEventListener("click", () => startRecording());
   el.btnStopRec.addEventListener("click", () => stopRecording());
+  el.btnStopFloat.addEventListener("click", () => stopRecording());
 
   el.btnDismissHelp.addEventListener("click", () => {
     localStorage.setItem(STORAGE_HELP, "1");

@@ -150,6 +150,30 @@ body {
   display: flex;
 }
 
+.stopFloat {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  z-index: 10;
+  display: none;
+  appearance: none;
+  border: 1px solid color-mix(in oklab, var(--danger) 42%, var(--panel-border));
+  background: color-mix(in oklab, var(--danger) 26%, rgba(255, 255, 255, 0.06));
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.stopFloat.show {
+  display: inline-flex;
+}
+
+.stopFloat:disabled {
+  opacity: 0.6;
+}
+
 .brand {
   font-weight: 700;
   letter-spacing: 0.2px;

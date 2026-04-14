@@ -18,7 +18,6 @@ const el = {
   offerText:     /** @type {HTMLTextAreaElement} */ (document.getElementById("offerText")),
   btnPasteOffer: /** @type {HTMLButtonElement}   */ (document.getElementById("btnPasteOffer")),
   btnUseOffer:   /** @type {HTMLButtonElement}   */ (document.getElementById("btnUseOffer")),
-  btnShareAnswer:/** @type {HTMLButtonElement}   */ (document.getElementById("btnShareAnswer")),
   btnCopyAnswer: /** @type {HTMLButtonElement}   */ (document.getElementById("btnCopyAnswer")),
 };
 
@@ -190,8 +189,8 @@ async function processOfferText(raw) {
   } catch { /* no clipboard permission — user will tap Copy */ }
 
   const hint = autoCopied
-    ? "Answer copied — go to iPhone and tap 'Paste Answer'"
-    : "Tap 'Copy Answer', then go to iPhone and tap 'Paste Answer'";
+    ? "Answer copied — go to iPhone and tap Start Monitor"
+    : "Tap Copy (fallback), then go to iPhone and tap Start Monitor";
 
   showAnswerPane(hint);
   setStatus(autoCopied ? "Answer copied" : "Answer ready");
@@ -216,25 +215,6 @@ async function pasteFromiPhone() {
     return;
   }
   await processOfferText(text);
-}
-
-/** Share the answer URL back to iPhone via Web Share API. */
-async function shareAnswer() {
-  if (!answerEncoded) return;
-  // Embed answer in the monitor URL itself so the iPhone can theoretically
-  // open it too, but the main use-case is clipboard paste.
-  const url = `${location.href.split("#")[0]}#a=${answerEncoded}`;
-  if (navigator.share) {
-    try {
-      await navigator.share({ url, title: "Golf Monitor answer" });
-    } catch (e) {
-      if (!(e instanceof Error) || e.name !== "AbortError") {
-        await copyAnswer();
-      }
-    }
-  } else {
-    await copyAnswer();
-  }
 }
 
 /** Copy the answer encoded string to clipboard. */
@@ -276,7 +256,6 @@ function init() {
     )
   );
 
-  el.btnShareAnswer.addEventListener("click", () => shareAnswer().catch(() => copyAnswer()));
   el.btnCopyAnswer.addEventListener("click",  () => copyAnswer());
 }
 

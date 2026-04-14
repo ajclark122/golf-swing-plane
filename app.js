@@ -276,7 +276,7 @@ async function monitorShare() {
       await navigator.share({ url: monitor.offerUrl, title: "Golf Monitor" });
     } catch (e) {
       if (!(e instanceof Error) || e.name !== "AbortError") {
-        monitorSetStatus("Share failed — try again");
+        monitorSetStatus("Pair failed — try again");
       }
     }
   }
@@ -298,7 +298,7 @@ async function monitorPasteAnswer() {
     return;
   }
   if (!text?.trim()) {
-    monitorSetStatus("Clipboard is empty — copy the answer on iPad first");
+    monitorSetStatus("Not ready yet — open the iPad link first, then come back and tap Start Monitor");
     return;
   }
   await monitorApplyAnswer(text.trim());
@@ -311,7 +311,7 @@ async function monitorApplyAnswer(text) {
   try {
     answer = await monitorDecodeSignal(text);
   } catch {
-    monitorSetStatus("Couldn't read the answer — make sure you copied the full text from iPad");
+    monitorSetStatus("Couldn't read the answer — try opening the iPad link again, then tap Start Monitor");
     return;
   }
   if (!answer?.type || !answer?.sdp) { monitorSetStatus("Invalid answer — try generating a new link"); return; }
@@ -1204,6 +1204,7 @@ function autoProposePlaneLine(keypoints) {
   const handsO = midO(lwOk ? lw : null, rwOk ? rw : null);
 
   let dx, dy, bottomY;
+  let resolved = false;
 
   if (laOk || raOk) {
     // ── Primary: hands → lead ankle ──────────────────────────────────────────
@@ -1215,23 +1216,28 @@ function autoProposePlaneLine(keypoints) {
     // MoveNet kp 15 = player's left ankle; kp 16 = player's right ankle.
     // Right-handed golfer → left ankle is lead; left-handed → right ankle is lead.
     const isRightHanded = state.handedness === "right";
-    const leadAnkle  = isRightHanded ? (laOk ? la : ra) : (raOk ? ra : la);
-    const leadAnkleOk = isRightHanded ? laOk : raOk;
-    // Only fall through to trail ankle if lead is not visible
-    const anchorKp = leadAnkleOk ? leadAnkle : (isRightHanded ? ra : la);
+    const leadKp = isRightHanded ? (laOk ? la : ra) : (raOk ? ra : la);
+    const ankleO = toO(leadKp);
 
-    const ankleO = toO(anchorKp);
-    dx      = ankleO.nx - handsO.x;
-    dy      = ankleO.ny - handsO.y;
-    bottomY = clamp01(ankleO.ny + 0.02); // 2% below ankle ≈ ball on ground
-  } else if (leOk || reOk) {
-    // ── Fallback: elbow → wrist direction (ankles off-screen) ─────────────────
+    // In overlay space y=0 is the TOP (head) and y=1 is the BOTTOM (feet).
+    // The ankle MUST sit clearly below the hands. If it doesn't, the detection
+    // is unreliable (ankle cropped at edge, keypoint jumped, etc.) — fall
+    // through to the elbow fallback rather than drawing an inverted line.
+    if (ankleO.ny > handsO.y + 0.10) {
+      dx       = ankleO.nx - handsO.x;
+      dy       = ankleO.ny - handsO.y;
+      bottomY  = clamp01(ankleO.ny + 0.02); // 2% below ankle ≈ ball on ground
+      resolved = true;
+    }
+  }
+
+  if (!resolved) {
+    // ── Fallback: elbow → wrist direction (ankles off-screen or unreliable) ──
+    if (!leOk && !reOk) return;
     const elbowO = midO(leOk ? le : null, reOk ? re : null);
     dx      = handsO.x - elbowO.x;
     dy      = handsO.y - elbowO.y;
     bottomY = 0.85;
-  } else {
-    return; // can't determine direction without ankles or elbows
   }
 
   const len = Math.sqrt(dx * dx + dy * dy) || 1;

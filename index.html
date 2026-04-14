@@ -20,6 +20,9 @@
         ></video>
         <canvas id="overlay" class="overlay" aria-label="Line overlay"></canvas>
 
+        <!-- Swing plane assessment badge — visible independently of HUD hide/show -->
+        <div id="assessment" class="assessment" role="status" aria-live="polite" aria-atomic="true"></div>
+
         <div class="hud top">
           <div class="brand">
             <div class="brandMark" aria-hidden="true"></div>
@@ -74,6 +77,16 @@
                 </span>
                 <span class="srOnly">Reset</span>
               </button>
+              <button id="btnRecalibrate" class="btn iconOnly" type="button" disabled aria-label="Re-calibrate swing plane line">
+                <span class="btnIcon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                    <circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M12 3v3M12 18v3M3 12h3M18 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                </span>
+                <span class="srOnly">Re-calibrate</span>
+              </button>
             </div>
 
             <div class="group row3">
@@ -107,6 +120,9 @@
 
         <div class="countdown" id="countdown" aria-hidden="true"></div>
 
+        <!-- Post-swing summary overlay (auto-dismisses after 5 s) -->
+        <div id="swingSummary" class="swingSummary" role="dialog" aria-live="assertive" aria-atomic="true"></div>
+
         <div class="help" id="help">
           <div class="helpCard">
             <div class="helpTitle">Tips</div>
@@ -116,6 +132,7 @@
               <li>Drag an endpoint to rotate/resize.</li>
               <li>Drag the line body to move it.</li>
               <li>Controls hide after a moment; tap to show them again.</li>
+              <li>In Side view: the <strong style="color:#ffd44d">yellow line</strong> is your swing plane — auto-set at address, drag to adjust. Tap it then use the target button to re-calibrate.</li>
             </ul>
             <button id="btnDismissHelp" class="btn small" type="button">Got it</button>
           </div>
@@ -123,6 +140,9 @@
       </div>
     </main>
 
+    <!-- TF.js + MoveNet for pose-based swing analysis. Loads async; app degrades gracefully if unavailable. -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

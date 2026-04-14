@@ -22,7 +22,7 @@ const el = {
   qrReader: /** @type {HTMLDivElement} */ (document.getElementById("qrReader")),
 
   offerText: /** @type {HTMLTextAreaElement} */ (document.getElementById("offerText")),
-  answerQr: /** @type {HTMLCanvasElement} */ (document.getElementById("answerQr")),
+  answerQr: /** @type {HTMLDivElement} */ (document.getElementById("answerQr")),
   answerText: /** @type {HTMLTextAreaElement} */ (document.getElementById("answerText")),
 };
 
@@ -161,15 +161,18 @@ async function useOfferText(text) {
   setStatus("Ready. Show the QR to iPhone (or Copy/Paste).");
 }
 
-async function drawQrToCanvas(canvas, text) {
-  // QRCode is a global from qrcode.min.js
+async function drawQrToCanvas(container, text) {
+  // QrCreator is a global from qr-creator.min.js
   // @ts-ignore
-  await QRCode.toCanvas(canvas, text, {
-    errorCorrectionLevel: "L",
-    margin: 1,
-    width: canvas.width,
-    color: { dark: "#ffffff", light: "#00000000" },
-  });
+  if (!window.QrCreator || typeof QrCreator.render !== "function") throw new Error("QR library failed to load");
+  container.innerHTML = "";
+  const holder = document.createElement("div");
+  container.appendChild(holder);
+  // @ts-ignore
+  QrCreator.render(
+    { text, radius: 0, ecLevel: "L", fill: "#ffffff", background: null, size: 260 },
+    holder
+  );
 }
 
 async function startScanner() {

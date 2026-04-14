@@ -106,7 +106,7 @@ const el = {
   monitorPanel:       /** @type {HTMLDivElement} */ (document.getElementById("monitorPanel")),
   monitorPairStatus:  /** @type {HTMLDivElement} */ (document.getElementById("monitorPairStatus")),
   btnMonitorClose:    /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorClose")),
-  monitorOfferQr:     /** @type {HTMLCanvasElement} */ (document.getElementById("monitorOfferQr")),
+  monitorOfferQr:     /** @type {HTMLDivElement} */ (document.getElementById("monitorOfferQr")),
   monitorOfferText:   /** @type {HTMLTextAreaElement} */ (document.getElementById("monitorOfferText")),
   btnMonitorNewOffer: /** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorNewOffer")),
   btnMonitorCopyOffer:/** @type {HTMLButtonElement} */ (document.getElementById("btnMonitorCopyOffer")),
@@ -240,17 +240,17 @@ function monitorDecodeSignal(text) {
 }
 
 async function monitorDrawQr(canvas, text) {
-  // QRCode is global from qrcode.min.js
+  // QrCreator is a global from qr-creator.min.js
   // @ts-ignore
-  if (!window.QRCode || typeof QRCode.toCanvas !== "function") throw new Error("QR library failed to load");
+  if (!window.QrCreator || typeof QrCreator.render !== "function") throw new Error("QR library failed to load");
+  canvas.innerHTML = "";
+  const holder = document.createElement("div");
+  canvas.appendChild(holder);
   // @ts-ignore
-  await QRCode.toCanvas(canvas, text, {
-    // Keep error correction low to allow large payloads (SDP can be big).
-    errorCorrectionLevel: "L",
-    margin: 1,
-    width: canvas.width,
-    color: { dark: "#ffffff", light: "#00000000" },
-  });
+  QrCreator.render(
+    { text, radius: 0, ecLevel: "L", fill: "#ffffff", background: null, size: 260 },
+    holder
+  );
 }
 
 async function monitorNewOffer() {

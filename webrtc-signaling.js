@@ -32,7 +32,13 @@ export async function waitForIceGatheringComplete(pc, { timeoutMs = 2000 } = {})
  */
 export function encodeSignal(obj) {
   const json = JSON.stringify(obj);
-  const bytes = new TextEncoder().encode(json);
+  // If available, compress to shrink QR payload size.
+  // LZString is a global from lz-string.min.js
+  // @ts-ignore
+  const bytes = (typeof LZString !== "undefined" && typeof LZString.compressToUint8Array === "function")
+    // @ts-ignore
+    ? LZString.compressToUint8Array(json)
+    : new TextEncoder().encode(json);
   return base64UrlEncode(bytes);
 }
 
@@ -42,14 +48,12 @@ export function encodeSignal(obj) {
  */
 export function decodeSignal(text) {
   const bytes = base64UrlDecode(String(text || "").trim());
-  const json = new TextDecoder().decode(bytes);
+  // @ts-ignore
+  const json = (typeof LZString !== "undefined" && typeof LZString.decompressFromUint8Array === "function")
+    // @ts-ignore
+    ? LZString.decompressFromUint8Array(bytes)
+    : new TextDecoder().decode(bytes);
   return JSON.parse(json);
-}
-
-/** Generate a 5-digit pairing code as a string (00000..99999). */
-export function generatePairCode() {
-  const n = Math.floor(Math.random() * 100000);
-  return String(n).padStart(5, "0");
 }
 
 /**

@@ -218,13 +218,25 @@ function monitorBase64UrlDecode(text) {
 }
 
 function monitorEncodeSignal(obj) {
-  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  const json = JSON.stringify(obj);
+  // If available, compress to shrink QR payload size.
+  // LZString is a global from lz-string.min.js
+  // @ts-ignore
+  const bytes = (typeof LZString !== "undefined" && typeof LZString.compressToUint8Array === "function")
+    // @ts-ignore
+    ? LZString.compressToUint8Array(json)
+    : new TextEncoder().encode(json);
   return monitorBase64UrlEncode(bytes);
 }
 
 function monitorDecodeSignal(text) {
   const bytes = monitorBase64UrlDecode(text);
-  return JSON.parse(new TextDecoder().decode(bytes));
+  // @ts-ignore
+  const json = (typeof LZString !== "undefined" && typeof LZString.decompressFromUint8Array === "function")
+    // @ts-ignore
+    ? LZString.decompressFromUint8Array(bytes)
+    : new TextDecoder().decode(bytes);
+  return JSON.parse(json);
 }
 
 async function monitorDrawQr(canvas, text) {
@@ -263,13 +275,16 @@ async function monitorNewOffer() {
     try {
       el.monitorOfferQr.hidden = false;
       await monitorDrawQr(el.monitorOfferQr, encoded);
+      monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
     } catch (e) {
       if (el.monitorOfferQr) el.monitorOfferQr.hidden = true;
       const msg = e instanceof Error ? e.message : "QR render failed";
       monitorSetStatus(`${msg}. Use Copy/Paste.`);
     }
   }
-  monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
+  if (!el.monitorOfferQr) {
+    monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
+  }
 }
 
 async function monitorUseAnswerText(text) {

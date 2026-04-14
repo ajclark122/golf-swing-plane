@@ -112,27 +112,73 @@ body {
 }
 
 .hud.bottom {
-  bottom: env(safe-area-inset-bottom);
+  /* Drawer: flush to bottom edge, handle peeks above the fold */
+  bottom: 0;
+  left: 10px;
+  right: 10px;
+  margin: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   justify-content: center;
-  padding: var(--dock-pad);
-}
-
-.hud.bottom {
-  /* Safari sometimes lets wide flex children bleed past rounded box.
-     Force the dock to size within the panel. */
+  /* No top padding — the hudHandle provides that height */
+  padding: 0 var(--dock-pad) max(var(--dock-pad), env(safe-area-inset-bottom));
+  /* Collapsed: only the handle (36px) peeks above the screen bottom */
+  transform: translateY(calc(100% - 36px));
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
   overflow: hidden;
+  /* Ensure the dock can't exceed available width */
+  flex-direction: column;
+  align-items: center;
 }
 
-.hud.hidden {
+.hud.bottom.expanded {
+  transform: translateY(0);
+}
+
+/* During active recording: completely slide below screen */
+.hud.bottom.recording {
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+/* Top HUD: keep existing fade-out auto-hide */
+.hud.top.hidden {
   opacity: 0;
   pointer-events: none;
-  transform: translateY(10px);
+  transform: translateY(-10px);
+}
+
+.hud.top {
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.hud.bottom,
-.hud.top {
-  transition: opacity 180ms ease, transform 180ms ease;
+/* ── Drawer handle ──────────────────────────────────────────────────────────── */
+
+.hudHandle {
+  width: calc(100% + var(--dock-pad) * 2); /* stretch to panel edges */
+  height: 36px;
+  margin: 0 calc(-1 * var(--dock-pad));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  flex-shrink: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.hudHandlePill {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 160ms ease, width 160ms ease;
+}
+
+.hudHandle:hover .hudHandlePill,
+.hudHandle:active .hudHandlePill {
+  background: rgba(255, 255, 255, 0.58);
+  width: 44px;
 }
 
 .seg {
@@ -405,33 +451,18 @@ body {
   padding-right: 12px;
 }
 
-.group.row1 .btn.primary {
-  padding-left: 14px;
-  padding-right: 16px;
-}
-
 .group.row1 .segBtn {
-  padding-left: 14px;
-  padding-right: 14px;
+  padding-left: 16px;
+  padding-right: 16px;
 }
 
 .group.row1 .seg {
   flex: 0 0 auto;
 }
 
-.group.row1 .btn.primary {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.group.row1 .btnLabel {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .group.row1 {
   gap: 12px;
+  justify-content: center;
 }
 
 .group.row2,
@@ -656,7 +687,8 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   pointer-events: none;
-  transition: border-color 220ms ease, background 220ms ease;
+  transform-origin: top right;
+  transition: border-color 220ms ease, background 220ms ease, transform 160ms ease;
 }
 
 .assessment.show {
@@ -693,11 +725,76 @@ body {
   color: rgba(255, 255, 255, 0.94);
   letter-spacing: 0.1px;
   line-height: 1.2;
+  transition: font-size 160ms ease, transform 160ms ease;
 }
 
 .assessment.above .assessPlane { color: #ff6b85; }
 .assessment.on    .assessPlane { color: #5dff9e; }
 .assessment.below .assessPlane { color: #6ab8ff; }
+
+/* Closeness to plane (matches DataChannel level 0..3) — badge scales with it */
+.assessClose {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.1;
+}
+
+.assessment.planeL0 { transform: scale(1.22); }
+.assessment.planeL0 .assessPlane { font-size: 18px; }
+
+.assessment.planeL1 { transform: scale(1.06); }
+.assessment.planeL1 .assessPlane { font-size: 15px; }
+
+.assessment.planeL2 { transform: scale(0.94); }
+.assessment.planeL2 .assessPlane { font-size: 12px; }
+
+.assessment.planeL3 { transform: scale(0.82); }
+.assessment.planeL3 .assessPlane { font-size: 11px; }
+
+/* ── Club detection badge ─────────────────────────────────────────────────── */
+
+.clubBadge {
+  position: absolute;
+  /* Left side, mirroring the assessment badge on the right */
+  top: calc(env(safe-area-inset-top) + 80px);
+  left: calc(env(safe-area-inset-left) + 14px);
+  z-index: 6;
+  display: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 13px;
+  border-radius: 14px;
+  background: rgba(14, 16, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+
+.clubBadge.show {
+  display: flex;
+}
+
+.clubLabel {
+  font-size: 10px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.52);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.clubName {
+  font-size: 13px;
+  font-weight: 900;
+  color: var(--amber);
+  letter-spacing: 0.1px;
+  line-height: 1.2;
+}
 
 /* ── Color-mix fallback ───────────────────────────────────────────────────── */
 
@@ -796,14 +893,14 @@ body {
 .monitorTileBig {
   display: grid;
   place-items: center;
-  font-size: clamp(72px, 9vw, 140px);
+  font-size: clamp(96px, 16vw, 240px);
   font-weight: 900;
   letter-spacing: -2px;
   line-height: 1;
   text-shadow: 0 14px 40px rgba(0,0,0,0.55);
   transform: scale(1);
   transform-origin: center;
-  transition: transform 120ms ease, color 120ms ease;
+  transition: transform 200ms cubic-bezier(0.2, 0.85, 0.25, 1), color 160ms ease;
 }
 
 .monitorTileMeta {

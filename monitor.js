@@ -54,12 +54,24 @@ function phaseToLabel(phase) {
   return m[phase] || String(phase || "—");
 }
 
+/** Human label for 0..3 closeness (matches iPhone assessment). */
+function levelToCloseLabel(level) {
+  if (level === 0) return "On plane";
+  if (level === 1) return "Near plane";
+  if (level === 2) return "Off plane";
+  if (level === 3) return "Way off plane";
+  return "";
+}
+
 function applyLiveUpdate(msg) {
   const plane = msg?.plane ?? null;
   const level = (msg?.level === 0 || msg?.level === 1 || msg?.level === 2 || msg?.level === 3) ? msg.level : null;
   styleIcon(el.liveIcon, plane, level);
   el.liveIcon.textContent = planeToIcon(plane);
-  el.liveMeta.textContent = `${phaseToLabel(msg?.phase)} · ${planeToLabel(plane)}`;
+  const close = levelToCloseLabel(level);
+  el.liveMeta.textContent = close
+    ? `${phaseToLabel(msg?.phase)} · ${planeToLabel(plane)} · ${close}`
+    : `${phaseToLabel(msg?.phase)} · ${planeToLabel(plane)}`;
 }
 
 function applySummary(msg) {
@@ -67,13 +79,15 @@ function applySummary(msg) {
   const backLevel = (msg?.backswingLevel === 0 || msg?.backswingLevel === 1 || msg?.backswingLevel === 2 || msg?.backswingLevel === 3) ? msg.backswingLevel : null;
   styleIcon(el.backIcon, backPlane, backLevel);
   el.backIcon.textContent = planeToIcon(backPlane);
-  el.backMeta.textContent = planeToLabel(backPlane);
+  const backClose = levelToCloseLabel(backLevel);
+  el.backMeta.textContent = backClose ? `${planeToLabel(backPlane)} · ${backClose}` : planeToLabel(backPlane);
 
   const downPlane = msg?.downswingDominant ?? null;
   const downLevel = (msg?.downswingLevel === 0 || msg?.downswingLevel === 1 || msg?.downswingLevel === 2 || msg?.downswingLevel === 3) ? msg.downswingLevel : null;
   styleIcon(el.downIcon, downPlane, downLevel);
   el.downIcon.textContent = planeToIcon(downPlane);
-  el.downMeta.textContent = planeToLabel(downPlane);
+  const downClose = levelToCloseLabel(downLevel);
+  el.downMeta.textContent = downClose ? `${planeToLabel(downPlane)} · ${downClose}` : planeToLabel(downPlane);
 }
 
 function styleIcon(iconEl, plane, level) {
@@ -84,8 +98,12 @@ function styleIcon(iconEl, plane, level) {
     : "rgba(255,255,255,0.92)";
   iconEl.style.color = color;
 
-  // 4-step size scale: on-plane biggest, way-off smallest.
-  const scale = level === 0 ? 1.22 : level === 1 ? 1.08 : level === 2 ? 0.96 : level === 3 ? 0.86 : 1;
+  // Dramatic 4-step scale (iPad has space — make “far from plane” unmistakable).
+  const scale = level === 0 ? 1.58
+    : level === 1 ? 1.18
+    : level === 2 ? 0.78
+    : level === 3 ? 0.48
+    : 1;
   iconEl.style.transform = `scale(${scale})`;
 }
 

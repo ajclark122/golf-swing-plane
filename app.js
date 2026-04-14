@@ -40,8 +40,9 @@ const state = {
 
   ui: {
     hidden:       false,
+    drawerOpen:   false,
     lastActiveAt: Date.now(),
-    idleMs:       2000,
+    idleMs:       6000,
   },
 
   /**
@@ -75,6 +76,7 @@ const state = {
     downswingLevelLog:  /** @type {number[]} */ ([]),
     swingCompleted: false,
     summaryTimerHandle: /** @type {ReturnType<typeof setTimeout>|null} */ (null),
+    detectedClub:  /** @type {string|null} */ (null),
   },
 };
 
@@ -103,6 +105,8 @@ const el = {
   help:           /** @type {HTMLDivElement}    */ (document.getElementById("help")),
   btnDismissHelp: /** @type {HTMLButtonElement} */ (document.getElementById("btnDismissHelp")),
   assessment:     /** @type {HTMLDivElement}    */ (document.getElementById("assessment")),
+  clubBadge:      /** @type {HTMLDivElement}    */ (document.getElementById("clubBadge")),
+  hudHandle:      /** @type {HTMLDivElement}    */ (document.getElementById("hudHandle")),
   swingSummary:   /** @type {HTMLDivElement}    */ (document.getElementById("swingSummary")),
 
   // iPhone monitor pairing panel
@@ -335,8 +339,9 @@ function monitorMaybeSendLive() {
     phase: state.pose.phase,
     plane: state.pose.planeResult,
     level: state.pose.planeLevel,
+    club:  state.pose.detectedClub,
   };
-  const key = `${msg.view}|${msg.phase}|${msg.plane ?? "null"}`;
+  const key = `${msg.view}|${msg.phase}|${msg.plane ?? "null"}|${msg.level ?? "x"}|${msg.club ?? ""}`;
   if (key === monitor.lastKey && now - monitor.lastSentAt < 250) return;
 
   monitor.lastKey = key;
@@ -563,20 +568,31 @@ function resizeCanvasToStage() {
 
 // ── HUD visibility ────────────────────────────────────────────────────────────
 
+/** Open or close the bottom drawer. */
+function setDrawerOpen(open) {
+  state.ui.drawerOpen = open;
+  el.hudBottom?.classList.toggle("expanded", open);
+}
+
+/** Fade the top HUD in/out. Bottom drawer is managed separately. */
 function setHudHidden(hidden) {
   state.ui.hidden = hidden;
   el.hudTop?.classList.toggle("hidden", hidden);
-  el.hudBottom?.classList.toggle("hidden", hidden);
 }
 
+/** Called on meaningful user interaction — resets idle timer and restores top HUD. */
 function bumpUiActivity() {
   state.ui.lastActiveAt = Date.now();
   if (state.ui.hidden && !state.recording.active) setHudHidden(false);
 }
 
+/** Collapse drawer + fade top HUD after idle. */
 function tickUiAutoHide() {
   if (state.recording.active || !state.ready) return;
-  if (Date.now() - state.ui.lastActiveAt >= state.ui.idleMs) setHudHidden(true);
+  if (Date.now() - state.ui.lastActiveAt >= state.ui.idleMs) {
+    setHudHidden(true);
+    if (state.ui.drawerOpen) setDrawerOpen(false);
+  }
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -605,10 +621,10 @@ function drawLineOnCtx(c, line, W, H, selected, handleRadius) {
   }
 }
 
-/** Draw the hands/wrist position dot in the plane-result color. */
-function drawWristDot(c, nx, ny, W, H, color) {
+/** Draw the hands/wrist position dot in the plane-result color. Radius scales with plane closeness (0=on … 3=way off). */
+function drawWristDot(c, nx, ny, W, H, color, radiusPx = 10) {
   c.beginPath();
-  c.arc(nx * W, ny * H, 10, 0, Math.PI * 2);
+  c.arc(nx * W, ny * H, radiusPx, 0, Math.PI * 2);
   c.fillStyle   = color;
   c.fill();
   c.strokeStyle = "rgba(255,255,255,0.80)";
@@ -632,7 +648,11 @@ function render() {
       const color = state.pose.planeResult === "above" ? "#ff6b85"
         : state.pose.planeResult === "below" ? "#6ab8ff"
         : "#5dff9e";
-      drawWristDot(ctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, r.width, r.height, color);
+      const lv = state.pose.planeLevel;
+      const rDot = (lv === 0 || lv === 1 || lv === 2 || lv === 3)
+        ? [17, 13, 9, 6][lv]
+        : 10;
+      drawWristDot(ctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, r.width, r.height, color, rDot);
     }
   }
 
@@ -640,6 +660,21 @@ function render() {
 }
 
 // ── Camera ────────────────────────────────────────────────────────────────────
+
+/**
+ * Swap the start/stop button icon and aria-label without touching innerHTML of
+ * the whole button (which would wipe the SVG element).
+ */
+function setStartStopState(running) {
+  if (!el.btnStartStop) return;
+  el.btnStartStop.setAttribute("aria-label", running ? "Stop camera" : "Start camera");
+  const svg = el.btnStartStop.querySelector(".btnIcon svg");
+  if (!svg) return;
+  // Play triangle → stop square
+  svg.innerHTML = running
+    ? '<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" opacity="0.92"/>'
+    : '<path d="M8 5v14l11-7-11-7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>';
+}
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -662,12 +697,13 @@ async function startCamera() {
     el.btnRecord.disabled = false;
     el.fps.disabled       = false;
     if (el.btnRecalibrate) el.btnRecalibrate.disabled = (state.view !== "side");
-    el.btnStartStop.textContent = "Stop camera";
+    setStartStopState(true);
     setStatus(`Live (${state.lines.length} line${state.lines.length === 1 ? "" : "s"})`);
     resizeCanvasToStage();
     render();
 
     bumpUiActivity();
+    setDrawerOpen(true); // reveal controls briefly so user sees live state
     if (!localStorage.getItem(STORAGE_HELP)) el.help.classList.add("show");
 
     initPose(); // silently no-ops if TF.js didn't load
@@ -688,9 +724,10 @@ function stopCamera() {
   el.btnStopRec.disabled = true;
   el.fps.disabled        = true;
   if (el.btnRecalibrate) el.btnRecalibrate.disabled = true;
-  el.btnStartStop.textContent = "Start camera";
+  setStartStopState(false);
   setStatus("Camera stopped");
   setHudHidden(false);
+  setDrawerOpen(true);
   stopPoseLoop();
   render();
 }
@@ -848,6 +885,8 @@ async function startRecording() {
 
   state.recording.active = true;
   setHudHidden(true);
+  setDrawerOpen(false);
+  el.hudBottom?.classList.add("recording");
   el.btnStopFloat.classList.add("show");
   el.btnStopFloat.disabled  = false;
   el.btnStopRec.disabled    = false;
@@ -884,7 +923,9 @@ async function startRecording() {
     document.body.appendChild(a); a.click(); a.remove();
 
     state.recording.active = false;
+    el.hudBottom?.classList.remove("recording");
     setHudHidden(false);
+    setDrawerOpen(true);
     el.btnStopFloat.classList.remove("show");
     el.btnStopFloat.disabled = true;
     el.btnStopRec.disabled   = true;
@@ -1166,32 +1207,43 @@ function detectPhase(handsY, timestamp) {
 }
 
 /**
+ * Classify the likely club from the shoulder→hands angle relative to horizontal.
+ * Longer clubs → shallower arm plane (smaller angle); shorter clubs → steeper.
+ * Thresholds are approximate and tunable from on-course observation.
+ */
+function classifyClub(angleDeg) {
+  if (angleDeg < 52) return "Driver";
+  if (angleDeg < 58) return "Wood / Hybrid";
+  if (angleDeg < 63) return "Long Iron";
+  if (angleDeg < 68) return "Mid Iron";
+  if (angleDeg < 73) return "Short Iron";
+  return "Wedge";
+}
+
+/**
  * Auto-propose the swing-plane line while the golfer is at address.
  * Called every inference frame while phase === "address".
  *
- * Geometry rationale:
- *  The club shaft runs from the HANDS down to the BALL (ground level, near the feet).
- *  The correct direction vector is therefore  hands → ankle/ground, NOT elbow→wrist.
- *  (elbow→wrist is nearly vertical at address because the forearms hang down — the
- *  club shaft angle comes from the *horizontal* offset between ball and hands.)
- *
- *  Primary:  hands → ankle midpoint  (ankles ≈ ball/ground height)
- *  Fallback: elbow → wrist direction (used only when ankles aren't visible)
+ * Geometry:
+ *  Primary:  shoulder midpoint → hands midpoint
+ *            The arm-plane direction at address correlates with the club shaft angle.
+ *            Longer clubs → shallower arm angle; shorter clubs → steeper.
+ *            The angle is also used to classify the likely club being held.
+ *  Fallback: elbow → wrist direction (used when shoulders are off-screen).
  *
  * EMA smoothing (α = 0.25) prevents jitter; snaps directly on the first address frame.
  * localStorage writes are throttled to every 10 stable frames.
  */
 function autoProposePlaneLine(keypoints) {
-  const MIN_CONF   = 0.40;
-  const ANKLE_CONF = 0.35;
+  const MIN_CONF = 0.40;
 
   const lw = keypoints[9],  rw = keypoints[10]; // wrists
   const le = keypoints[7],  re = keypoints[8];  // elbows (fallback)
-  const la = keypoints[15], ra = keypoints[16]; // ankles (MoveNet: la = player left, ra = player right)
+  const ls = keypoints[5],  rs = keypoints[6];  // shoulders (primary)
 
   const lwOk = lw && lw.score >= MIN_CONF, rwOk = rw && rw.score >= MIN_CONF;
   const leOk = le && le.score >= MIN_CONF, reOk = re && re.score >= MIN_CONF;
-  const laOk = la && la.score >= ANKLE_CONF, raOk = ra && ra.score >= ANKLE_CONF;
+  const lsOk = ls && ls.score >= MIN_CONF, rsOk = rs && rs.score >= MIN_CONF;
 
   if (!lwOk && !rwOk) return;
 
@@ -1206,40 +1258,35 @@ function autoProposePlaneLine(keypoints) {
   let dx, dy, bottomY;
   let resolved = false;
 
-  if (laOk || raOk) {
-    // ── Primary: hands → lead ankle ──────────────────────────────────────────
-    // Ball sits near the lead foot regardless of club length (driver: off lead
-    // foot; short irons: just inside lead foot). Using the lead ankle as the
-    // ground anchor gives a more accurate shaft angle across all clubs compared
-    // to the ankle midpoint (which only works well for mid-irons).
-    //
-    // MoveNet kp 15 = player's left ankle; kp 16 = player's right ankle.
-    // Anatomically, RH → lead is left ankle, LH → lead is right — but the live
-    // feed is mirrored (scaleX(-1)), so the UI R/L mapping is inverted vs raw
-    // keypoint indices. Swap here so the on-screen R/L buttons match feel.
-    const isRightHanded = state.handedness === "right";
-    const leadKp = isRightHanded ? (raOk ? ra : la) : (laOk ? la : ra);
-    const ankleO = toO(leadKp);
+  if (lsOk || rsOk) {
+    // ── Primary: shoulder midpoint → hands midpoint ───────────────────────────
+    // The arm-plane direction at address is a reliable proxy for the club shaft
+    // angle. Longer clubs (driver) → golfer stands more upright → shallower arm
+    // angle from horizontal. Shorter clubs (wedge) → more bent-over → steeper.
+    const shoulderO = midO(lsOk ? ls : null, rsOk ? rs : null);
+    dx = handsO.x - shoulderO.x;
+    dy = handsO.y - shoulderO.y; // positive → downward in screen space
 
-    // In overlay space y=0 is the TOP (head) and y=1 is the BOTTOM (feet).
-    // The ankle MUST sit clearly below the hands. If it doesn't, the detection
-    // is unreliable (ankle cropped at edge, keypoint jumped, etc.) — fall
-    // through to the elbow fallback rather than drawing an inverted line.
-    if (ankleO.ny > handsO.y + 0.10) {
-      dx       = ankleO.nx - handsO.x;
-      dy       = ankleO.ny - handsO.y;
-      bottomY  = clamp01(ankleO.ny + 0.02); // 2% below ankle ≈ ball on ground
+    // Shoulders must sit clearly above the hands, else detection is unreliable.
+    if (dy > 0.08) {
+      bottomY  = clamp01(handsO.y + Math.abs(dy) * 1.4);
       resolved = true;
+
+      // Classify club from angle of shoulder→hands vector from horizontal.
+      const angleDeg = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
+      state.pose.detectedClub = classifyClub(angleDeg);
     }
   }
 
   if (!resolved) {
-    // ── Fallback: elbow → wrist direction (ankles off-screen or unreliable) ──
+    // ── Fallback: elbow → wrist direction (shoulders off-screen) ─────────────
     if (!leOk && !reOk) return;
     const elbowO = midO(leOk ? le : null, reOk ? re : null);
     dx      = handsO.x - elbowO.x;
     dy      = handsO.y - elbowO.y;
     bottomY = 0.85;
+    // Clear club classification when falling back (insufficient keypoints).
+    state.pose.detectedClub = null;
   }
 
   const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -1391,26 +1438,49 @@ function dismissSwingSummary() {
   if (el.swingSummary) el.swingSummary.classList.remove("show");
 }
 
-/** Update the assessment badge DOM element. */
+/** Update the assessment badge and club detection badge DOM elements. */
 function renderAssessment() {
   if (!el.assessment) return;
 
   const summaryOpen = el.swingSummary?.classList.contains("show") ?? false;
   const show = state.view === "side" && state.ready && state.pose.lastWristNorm !== null && !summaryOpen;
+
   if (!show) {
-    el.assessment.classList.remove("show", "above", "on", "below");
+    el.assessment.classList.remove("show", "above", "on", "below", "planeL0", "planeL1", "planeL2", "planeL3");
+    el.clubBadge?.classList.remove("show");
     return;
   }
 
+  // ── Plane assessment ───────────────────────────────────────────────────────
   const phaseLabel = { address: "Address", backswing: "Backswing", top: "Top", downswing: "Downswing", impact: "Impact" }[state.pose.phase] ?? state.pose.phase;
   const planeLabel = { above: "▲ Above", on: "● On plane", below: "▼ Below" }[state.pose.planeResult] ?? "—";
+  const lv = state.pose.planeLevel;
+  const closeLabel = lv === 0 ? "On plane" : lv === 1 ? "Near plane" : lv === 2 ? "Off plane" : lv === 3 ? "Way off plane" : "";
 
   el.assessment.classList.add("show");
   el.assessment.classList.toggle("above", state.pose.planeResult === "above");
   el.assessment.classList.toggle("on",    state.pose.planeResult === "on");
   el.assessment.classList.toggle("below", state.pose.planeResult === "below");
+  el.assessment.classList.toggle("planeL0", lv === 0);
+  el.assessment.classList.toggle("planeL1", lv === 1);
+  el.assessment.classList.toggle("planeL2", lv === 2);
+  el.assessment.classList.toggle("planeL3", lv === 3);
   el.assessment.innerHTML =
-    `<span class="assessPhase">${phaseLabel}</span><span class="assessPlane">${planeLabel}</span>`;
+    `<span class="assessPhase">${phaseLabel}</span>` +
+    `<span class="assessPlane">${planeLabel}</span>` +
+    (closeLabel ? `<span class="assessClose">${closeLabel}</span>` : "");
+
+  // ── Club detection badge ───────────────────────────────────────────────────
+  if (el.clubBadge) {
+    const club = state.pose.detectedClub;
+    if (club) {
+      el.clubBadge.classList.add("show");
+      el.clubBadge.innerHTML =
+        `<span class="clubLabel">Club</span><span class="clubName">${club}</span>`;
+    } else {
+      el.clubBadge.classList.remove("show");
+    }
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -1485,7 +1555,7 @@ function init() {
   el.btnMonitorUseAnswer?.addEventListener("click",   () => monitorApplyAnswer(el.monitorAnswerText?.value?.trim() ?? "").catch(() => {}));
 
   el.canvas.addEventListener("pointerdown",  (e) => { bumpUiActivity(); onPointerDown(e); }, { passive: true });
-  el.canvas.addEventListener("pointermove",  (e) => { bumpUiActivity(); onPointerMove(e); }, { passive: true });
+  el.canvas.addEventListener("pointermove",  (e) => { onPointerMove(e); }, { passive: true });
   el.canvas.addEventListener("pointerup",    (e) => { bumpUiActivity(); onPointerUp(e);   }, { passive: true });
   el.canvas.addEventListener("pointercancel",(e) => { bumpUiActivity(); onPointerUp(e);   }, { passive: true });
 
@@ -1499,6 +1569,57 @@ function init() {
   if (el.swingSummary) {
     el.swingSummary.addEventListener("pointerdown", () => dismissSwingSummary(), { passive: true });
   }
+
+  // ── Bottom drawer gestures ──────────────────────────────────────────────────
+  if (el.hudHandle) {
+    let dragStartY  = null;
+    let dragDelta   = 0;
+
+    el.hudHandle.addEventListener("touchstart", (e) => {
+      dragStartY = e.touches[0].clientY;
+      dragDelta  = 0;
+      e.preventDefault(); // prevent scroll bleed
+    }, { passive: false });
+
+    el.hudHandle.addEventListener("touchmove", (e) => {
+      if (dragStartY === null) return;
+      dragDelta = dragStartY - e.touches[0].clientY; // positive = swiped up
+      e.preventDefault();
+    }, { passive: false });
+
+    el.hudHandle.addEventListener("touchend", () => {
+      if (dragStartY === null) return;
+      const delta = dragDelta;
+      dragStartY  = null;
+      dragDelta   = 0;
+      if (Math.abs(delta) < 8) {
+        setDrawerOpen(!state.ui.drawerOpen); // tap → toggle
+      } else if (delta > 20) {
+        setDrawerOpen(true);                 // swipe up → expand
+      } else if (delta < -20) {
+        setDrawerOpen(false);                // swipe down → collapse
+      }
+      bumpUiActivity();
+    }, { passive: true });
+
+    // Mouse click (desktop / devtools testing)
+    el.hudHandle.addEventListener("click", () => {
+      setDrawerOpen(!state.ui.drawerOpen);
+      bumpUiActivity();
+    });
+
+    // Keyboard (accessibility)
+    el.hudHandle.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setDrawerOpen(!state.ui.drawerOpen);
+        bumpUiActivity();
+      }
+    });
+  }
+
+  // Open drawer on first load so the user can see the Start camera button
+  setDrawerOpen(true);
 
   setInterval(() => tickUiAutoHide(), 250);
 

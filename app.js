@@ -70,6 +70,39 @@ function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
 }
 
+function drawVideoCover(ctx2d, videoEl, destW, destH, { mirrorX } = { mirrorX: false }) {
+  const vw = videoEl.videoWidth || 0;
+  const vh = videoEl.videoHeight || 0;
+  if (!vw || !vh || !destW || !destH) return;
+
+  // Emulate CSS object-fit: cover by cropping the source rect.
+  const srcAR = vw / vh;
+  const destAR = destW / destH;
+
+  let sx = 0;
+  let sy = 0;
+  let sw = vw;
+  let sh = vh;
+
+  if (srcAR > destAR) {
+    // Source is wider: crop left/right
+    sw = Math.round(vh * destAR);
+    sx = Math.round((vw - sw) / 2);
+  } else {
+    // Source is taller: crop top/bottom
+    sh = Math.round(vw / destAR);
+    sy = Math.round((vh - sh) / 2);
+  }
+
+  ctx2d.save();
+  if (mirrorX) {
+    ctx2d.translate(destW, 0);
+    ctx2d.scale(-1, 1);
+  }
+  ctx2d.drawImage(videoEl, sx, sy, sw, sh, 0, 0, destW, destH);
+  ctx2d.restore();
+}
+
 function storageKeyForView(view) {
   return view === "side" ? STORAGE_KEY_SIDE : STORAGE_KEY_FRONT;
 }
@@ -466,20 +499,19 @@ function drawCompositeFrame() {
   const cctx = state.recording.compositeCtx;
   if (!c || !cctx) return;
   const r = el.stage.getBoundingClientRect();
-  const w = Math.max(1, Math.round(r.width));
-  const h = Math.max(1, Math.round(r.height));
+  // iOS encoders (esp. H.264) are happiest with even dimensions; odd sizes can lead to padding/scaling artifacts.
+  let w = Math.max(2, Math.round(r.width));
+  let h = Math.max(2, Math.round(r.height));
+  if (w % 2) w -= 1;
+  if (h % 2) h -= 1;
   if (c.width !== w || c.height !== h) {
     c.width = w;
     c.height = h;
   }
 
   cctx.clearRect(0, 0, w, h);
-  // Mirror to match what user sees (video element is mirrored in CSS)
-  cctx.save();
-  cctx.translate(w, 0);
-  cctx.scale(-1, 1);
-  cctx.drawImage(el.video, 0, 0, w, h);
-  cctx.restore();
+  // Mirror + cover-crop to match what user sees (video uses CSS object-fit: cover + scaleX(-1))
+  drawVideoCover(cctx, el.video, w, h, { mirrorX: true });
 
   // Draw the same overlay lines
   const handleRadius = 7;

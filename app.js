@@ -63,13 +63,16 @@ const state = {
     phase:         /** @type {"address"|"backswing"|"top"|"downswing"|"impact"} */ ("address"),
     prevPhase:     /** @type {"address"|"backswing"|"top"|"downswing"|"impact"} */ ("address"),
     planeResult:   /** @type {"above"|"on"|"below"|null} */ (null),
+    planeLevel:    /** @type {0|1|2|3|null} */ (null), // 0=on, 1=near, 2=off, 3=way off
     lastWristNorm: /** @type {{x:number,y:number}|null} */ (null),
     lastGoodAt:    0,
     addressWristY: /** @type {number|null} */ (null),
     stableFrames:  0,
     // Per-swing accumulator — stores plane readings during each phase
-    backswingLog:  /** @type {string[]} */ ([]),
-    downswingLog:  /** @type {string[]} */ ([]),
+    backswingLog:       /** @type {string[]} */ ([]),
+    downswingLog:       /** @type {string[]} */ ([]),
+    backswingLevelLog:  /** @type {number[]} */ ([]),
+    downswingLevelLog:  /** @type {number[]} */ ([]),
     swingCompleted: false,
     summaryTimerHandle: /** @type {ReturnType<typeof setTimeout>|null} */ (null),
   },
@@ -347,6 +350,7 @@ function monitorMaybeSendLive() {
     view: state.view,
     phase: state.pose.phase,
     plane: state.pose.planeResult,
+    level: state.pose.planeLevel,
   };
   const key = `${msg.view}|${msg.phase}|${msg.plane ?? "null"}`;
   if (key === monitor.lastKey && now - monitor.lastSentAt < 250) return;
@@ -356,13 +360,15 @@ function monitorMaybeSendLive() {
   try { monitor.dc.send(JSON.stringify(msg)); } catch { /* ignore */ }
 }
 
-function monitorSendSummary(backswingDominant, downswingDominant) {
+function monitorSendSummary(backswingDominant, downswingDominant, backswingLevel, downswingLevel) {
   if (!monitor.connected || !monitor.dc || monitor.dc.readyState !== "open") return;
   const msg = {
     type: "summary",
     t: Date.now(),
     backswingDominant,
     downswingDominant,
+    backswingLevel,
+    downswingLevel,
   };
   try { monitor.dc.send(JSON.stringify(msg)); } catch { /* ignore */ }
 }
@@ -963,6 +969,8 @@ function resetPoseState() {
   state.pose.stableFrames  = 0;
   state.pose.backswingLog  = [];
   state.pose.downswingLog  = [];
+  state.pose.backswingLevelLog = [];
+  state.pose.downswingLevelLog = [];
   state.pose.swingCompleted = false;
   dismissSwingSummary();
 }
@@ -1076,6 +1084,8 @@ async function runPoseInference() {
       // Reset accumulators for the next swing
       state.pose.backswingLog  = [];
       state.pose.downswingLog  = [];
+      state.pose.backswingLevelLog = [];
+      state.pose.downswingLevelLog = [];
       state.pose.swingCompleted = false;
     }
     if (newPhase === "impact" && !state.pose.swingCompleted) {
@@ -1099,9 +1109,15 @@ async function runPoseInference() {
   }
 
   // ── Collect per-swing plane logs (after assessment so result is current) ──
-  if (state.view === "side" && state.pose.planeResult) {
-    if (newPhase === "backswing") state.pose.backswingLog.push(state.pose.planeResult);
-    if (newPhase === "downswing") state.pose.downswingLog.push(state.pose.planeResult);
+  if (state.view === "side" && state.pose.planeResult && state.pose.planeLevel !== null) {
+    if (newPhase === "backswing") {
+      state.pose.backswingLog.push(state.pose.planeResult);
+      state.pose.backswingLevelLog.push(state.pose.planeLevel);
+    }
+    if (newPhase === "downswing") {
+      state.pose.downswingLog.push(state.pose.planeResult);
+      state.pose.downswingLevelLog.push(state.pose.planeLevel);
+    }
   }
 
   render();
@@ -1285,6 +1301,9 @@ function assessPlane(handsNormX, handsNormY) {
   const d  = (dx * (handsNormY - sp.y1) - dy * (handsNormX - sp.x1)) / len;
   const TH = 0.04; // 4% of normalized width ≈ ~1-2 cm at typical camera distance
 
+  const abs = Math.abs(d);
+  const level = abs <= TH ? 0 : abs <= TH * 2 ? 1 : abs <= TH * 3.5 ? 2 : 3;
+  state.pose.planeLevel = /** @type {0|1|2|3} */ (level);
   state.pose.planeResult = d > TH ? "above" : d < -TH ? "below" : "on";
 }
 
@@ -1298,13 +1317,27 @@ function dominantResult(log) {
   return /** @type {"above"|"on"|"below"} */ (Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]);
 }
 
+/** Compute the most-common closeness level (0..3) in a log array. */
+function dominantLevel(log) {
+  if (!log || log.length === 0) return null;
+  const counts = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  for (const v of log) {
+    const n = Number(v);
+    if (n === 0 || n === 1 || n === 2 || n === 3) counts[n]++;
+  }
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return best === undefined ? null : Number(best);
+}
+
 function triggerSwingSummary() {
   // Require at least a few readings in each phase to avoid noise
   if (state.pose.backswingLog.length < 3 && state.pose.downswingLog.length < 3) return;
   state.pose.swingCompleted = true;
   const backswing = dominantResult(state.pose.backswingLog);
   const downswing = dominantResult(state.pose.downswingLog);
-  monitorSendSummary(backswing, downswing);
+  const backswingLevel = dominantLevel(state.pose.backswingLevelLog);
+  const downswingLevel = dominantLevel(state.pose.downswingLevelLog);
+  monitorSendSummary(backswing, downswing, backswingLevel, downswingLevel);
   showSwingSummary(backswing, downswing);
 }
 

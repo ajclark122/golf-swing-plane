@@ -58,15 +58,38 @@ function phaseToLabel(phase) {
 }
 
 function applyLiveUpdate(msg) {
-  el.liveIcon.textContent = planeToIcon(msg?.plane ?? null);
-  el.liveMeta.textContent = `${phaseToLabel(msg?.phase)} · ${planeToLabel(msg?.plane ?? null)}`;
+  const plane = msg?.plane ?? null;
+  const level = (msg?.level === 0 || msg?.level === 1 || msg?.level === 2 || msg?.level === 3) ? msg.level : null;
+  styleIcon(el.liveIcon, plane, level);
+  el.liveIcon.textContent = planeToIcon(plane);
+  el.liveMeta.textContent = `${phaseToLabel(msg?.phase)} · ${planeToLabel(plane)}`;
 }
 
 function applySummary(msg) {
-  el.backIcon.textContent = planeToIcon(msg?.backswingDominant ?? null);
-  el.backMeta.textContent = planeToLabel(msg?.backswingDominant ?? null);
-  el.downIcon.textContent = planeToIcon(msg?.downswingDominant ?? null);
-  el.downMeta.textContent = planeToLabel(msg?.downswingDominant ?? null);
+  const backPlane = msg?.backswingDominant ?? null;
+  const backLevel = (msg?.backswingLevel === 0 || msg?.backswingLevel === 1 || msg?.backswingLevel === 2 || msg?.backswingLevel === 3) ? msg.backswingLevel : null;
+  styleIcon(el.backIcon, backPlane, backLevel);
+  el.backIcon.textContent = planeToIcon(backPlane);
+  el.backMeta.textContent = planeToLabel(backPlane);
+
+  const downPlane = msg?.downswingDominant ?? null;
+  const downLevel = (msg?.downswingLevel === 0 || msg?.downswingLevel === 1 || msg?.downswingLevel === 2 || msg?.downswingLevel === 3) ? msg.downswingLevel : null;
+  styleIcon(el.downIcon, downPlane, downLevel);
+  el.downIcon.textContent = planeToIcon(downPlane);
+  el.downMeta.textContent = planeToLabel(downPlane);
+}
+
+function styleIcon(iconEl, plane, level) {
+  // Match the iPhone colors.
+  const color = plane === "above" ? "#ff6b85"
+    : plane === "below" ? "#6ab8ff"
+    : plane === "on"    ? "#5dff9e"
+    : "rgba(255,255,255,0.92)";
+  iconEl.style.color = color;
+
+  // 4-step size scale: on-plane biggest, way-off smallest.
+  const scale = level === 0 ? 1.22 : level === 1 ? 1.08 : level === 2 ? 0.96 : level === 3 ? 0.86 : 1;
+  iconEl.style.transform = `scale(${scale})`;
 }
 
 // ── WebRTC ─────────────────────────────────────────────────────────────────────

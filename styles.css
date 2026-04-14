@@ -801,6 +801,9 @@ body {
   letter-spacing: -2px;
   line-height: 1;
   text-shadow: 0 14px 40px rgba(0,0,0,0.55);
+  transform: scale(1);
+  transform-origin: center;
+  transition: transform 120ms ease, color 120ms ease;
 }
 
 .monitorTileMeta {

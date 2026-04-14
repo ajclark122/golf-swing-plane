@@ -754,46 +754,44 @@ body {
 .assessment.planeL3 { transform: scale(0.82); }
 .assessment.planeL3 .assessPlane { font-size: 11px; }
 
-/* ── Club detection badge ─────────────────────────────────────────────────── */
+/* ── Frame-fill guide badge ───────────────────────────────────────────────── */
 
-.clubBadge {
+.frameGuide {
   position: absolute;
-  /* Left side, mirroring the assessment badge on the right */
+  /* Top-left, below the assessment badge on the right */
   top: calc(env(safe-area-inset-top) + 80px);
   left: calc(env(safe-area-inset-left) + 14px);
   z-index: 6;
   display: none;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  align-items: center;
+  gap: 6px;
   padding: 7px 13px;
   border-radius: 14px;
-  background: rgba(14, 16, 22, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 172, 28, 0.18);
+  border: 1px solid rgba(255, 212, 77, 0.45);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   pointer-events: none;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--amber);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
-.clubBadge.show {
+.frameGuide.show {
   display: flex;
 }
 
-.clubLabel {
-  font-size: 10px;
-  font-weight: 800;
-  color: rgba(255, 255, 255, 0.52);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  line-height: 1;
-}
+/* ── Club selector in drawer row 1 ───────────────────────────────────────── */
 
-.clubName {
-  font-size: 13px;
-  font-weight: 900;
-  color: var(--amber);
-  letter-spacing: 0.1px;
-  line-height: 1.2;
+.clubSelect {
+  /* Compact width — longest label is "3 Wood" (~56px) */
+  min-width: 80px;
+  max-width: 100px;
+  text-align: center;
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 /* ── Color-mix fallback ───────────────────────────────────────────────────── */

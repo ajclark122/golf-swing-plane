@@ -23,8 +23,8 @@
         <!-- Swing plane assessment badge — visible independently of HUD hide/show -->
         <div id="assessment" class="assessment" role="status" aria-live="polite" aria-atomic="true"></div>
 
-        <!-- Club detection badge — side view only, auto-detected from shoulder→hands angle -->
-        <div id="clubBadge" class="clubBadge" role="status" aria-live="polite" aria-atomic="true"></div>
+        <!-- Frame-fill guide — appears when pose quality is poor in side view -->
+        <div id="frameGuide" class="frameGuide" role="status" aria-live="polite" aria-atomic="true"></div>
 
         <div class="hud top">
           <div class="brand">
@@ -44,7 +44,7 @@
           </div>
 
           <div class="dock">
-            <!-- Row 1: primary session controls (compact icon-only start/stop, F/S, R/L) -->
+            <!-- Row 1: primary session controls -->
             <div class="group row1">
               <button id="btnStartStop" class="btn primary iconOnly" type="button" aria-label="Start camera">
                 <span class="btnIcon" aria-hidden="true">
@@ -61,6 +61,8 @@
                 <button id="btnHandRight" class="segBtn active" type="button" title="Right-handed golfer">R</button>
                 <button id="btnHandLeft"  class="segBtn"        type="button" title="Left-handed golfer">L</button>
               </div>
+              <!-- Club selector — options populated by JS from CLUBS array -->
+              <select id="clubSelect" class="select clubSelect" aria-label="Select club"></select>
             </div>
 
             <!-- Row 2: line management tools -->
@@ -151,7 +153,8 @@
               <li>Controls hide after a moment; tap to show them again.</li>
               <li>Swipe up from the bottom handle to show controls; they auto-collapse after 6 seconds.</li>
               <li>Set <strong>R / L</strong> to match your handedness — this ensures the yellow swing-plane line angles correctly.</li>
-              <li>In <strong>S</strong> (side) view: the <strong style="color:#ffd44d">yellow line</strong> is your swing plane — auto-set at address. The club badge shows the detected club based on your arm angle. Use the target ⊙ button to re-snap.</li>
+              <li>In <strong>S</strong> (side) view: select your club from the picker — the <strong style="color:#ffd44d">yellow line</strong> shows the correct shaft plane using that club's lie angle. Stand at address for it to lock to your hands position. Use ⊙ to re-snap.</li>
+              <li>A framing hint appears if you are too close, too far, or the club is out of frame.</li>
             </ul>
             <button id="btnDismissHelp" class="btn small" type="button">Got it</button>
           </div>

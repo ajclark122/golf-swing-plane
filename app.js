@@ -13,9 +13,36 @@ const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";
 const STORAGE_SWING_PLANE = "golfcam.swingplane.side.v1";
 const STORAGE_UI   = "golfcam.ui.v1";
 const STORAGE_HELP = "golfcam.helpDismissed";
+const STORAGE_CLUB = "golfcam.club.v1";
 
 /** Color used for the dedicated swing-plane line. */
 const SWING_PLANE_COLOR = "#ffd44d";
+
+/**
+ * Standard club lie angles (degrees from horizontal).
+ * Lie angle = angle the shaft makes with the ground at address.
+ * Longer clubs are shallower (smaller angle); wedges are steepest.
+ */
+const CLUBS = [
+  { id: "1w", label: "Driver",  lieAngle: 58   },
+  { id: "3w", label: "3 Wood",  lieAngle: 56   },
+  { id: "5w", label: "5 Wood",  lieAngle: 58   },
+  { id: "hy", label: "Hybrid",  lieAngle: 60   },
+  { id: "3i", label: "3 Iron",  lieAngle: 60   },
+  { id: "4i", label: "4 Iron",  lieAngle: 61   },
+  { id: "5i", label: "5 Iron",  lieAngle: 62   },
+  { id: "6i", label: "6 Iron",  lieAngle: 62.5 },
+  { id: "7i", label: "7 Iron",  lieAngle: 63   },
+  { id: "8i", label: "8 Iron",  lieAngle: 63.5 },
+  { id: "9i", label: "9 Iron",  lieAngle: 64   },
+  { id: "pw", label: "PW",      lieAngle: 64   },
+  { id: "gw", label: "GW",      lieAngle: 64   },
+  { id: "sw", label: "SW",      lieAngle: 64   },
+  { id: "lw", label: "LW",      lieAngle: 64   },
+];
+
+/** Fixed ground reference in normalized overlay coords (y increases downward). */
+const GROUND_Y = 0.92;
 
 /** @typedef {{id:string,x1:number,y1:number,x2:number,y2:number,color:string,width:number}} Line */
 
@@ -24,9 +51,10 @@ const state = {
   lines:       /** @type {Line[]} */ ([]),
   selectedId:  /** @type {string|null} */ (null),
   drag: /** @type {null|{lineId:string,mode:"end1"|"end2"|"body",startNx:number,startNy:number,base:Line}} */ (null),
-  ready:       false,
-  view:        /** @type {"front"|"side"} */ ("front"),
-  handedness:  /** @type {"right"|"left"} */ ("right"),
+  ready:         false,
+  view:          /** @type {"front"|"side"} */ ("front"),
+  handedness:    /** @type {"right"|"left"} */ ("right"),
+  selectedClub:  "7i", // persisted via STORAGE_CLUB
 
   recording: {
     active:          false,
@@ -76,7 +104,7 @@ const state = {
     downswingLevelLog:  /** @type {number[]} */ ([]),
     swingCompleted: false,
     summaryTimerHandle: /** @type {ReturnType<typeof setTimeout>|null} */ (null),
-    detectedClub:  /** @type {string|null} */ (null),
+    frameGuide:    /** @type {null|"step-back"|"step-closer"|"raise-club"} */ (null),
   },
 };
 
@@ -105,7 +133,8 @@ const el = {
   help:           /** @type {HTMLDivElement}    */ (document.getElementById("help")),
   btnDismissHelp: /** @type {HTMLButtonElement} */ (document.getElementById("btnDismissHelp")),
   assessment:     /** @type {HTMLDivElement}    */ (document.getElementById("assessment")),
-  clubBadge:      /** @type {HTMLDivElement}    */ (document.getElementById("clubBadge")),
+  frameGuide:     /** @type {HTMLDivElement}    */ (document.getElementById("frameGuide")),
+  clubSelect:     /** @type {HTMLSelectElement} */ (document.getElementById("clubSelect")),
   hudHandle:      /** @type {HTMLDivElement}    */ (document.getElementById("hudHandle")),
   swingSummary:   /** @type {HTMLDivElement}    */ (document.getElementById("swingSummary")),
 
@@ -334,12 +363,12 @@ function monitorMaybeSendLive() {
   if (now - monitor.lastSentAt < 100) return; // 10 Hz max
 
   const msg = {
-    t: now,
-    view: state.view,
+    t:     now,
+    view:  state.view,
     phase: state.pose.phase,
     plane: state.pose.planeResult,
     level: state.pose.planeLevel,
-    club:  state.pose.detectedClub,
+    club:  state.selectedClub,
   };
   const key = `${msg.view}|${msg.phase}|${msg.plane ?? "null"}|${msg.level ?? "x"}|${msg.club ?? ""}`;
   if (key === monitor.lastKey && now - monitor.lastSentAt < 250) return;
@@ -1059,7 +1088,8 @@ async function runPoseInference() {
     if (now - state.pose.lastGoodAt > 600) {
       state.pose.lastWristNorm = null;
       state.pose.planeResult   = null;
-      render(); renderAssessment();
+      state.pose.frameGuide    = null;
+      render(); renderAssessment(); renderFrameGuide();
     }
     return;
   }
@@ -1074,7 +1104,8 @@ async function runPoseInference() {
     if (now - state.pose.lastGoodAt > 600) {
       state.pose.lastWristNorm = null;
       state.pose.planeResult   = null;
-      render(); renderAssessment();
+      state.pose.frameGuide    = null;
+      render(); renderAssessment(); renderFrameGuide();
     }
     return;
   }
@@ -1118,6 +1149,37 @@ async function runPoseInference() {
     }
   }
 
+  // ── Frame-fill guide (side view only) ────────────────────────────────────
+  if (state.view === "side") {
+    const GUIDE_CONF = 0.30;
+    const nose = kps[0];
+    const lh = kps[11], rh = kps[12]; // hips
+    const noseOk = nose && nose.score >= GUIDE_CONF;
+    const hipOk  = (lh && lh.score >= GUIDE_CONF) || (rh && rh.score >= GUIDE_CONF);
+
+    if (!lwOk && !rwOk) {
+      state.pose.frameGuide = "raise-club";
+    } else if (noseOk) {
+      const noseNy = movenetToOverlay(nose.x, nose.y).ny;
+      if (noseNy > 0.30) {
+        state.pose.frameGuide = "step-back";  // golfer too close / head cut off top
+      } else if (hipOk) {
+        const hipNy = (() => {
+          const pts = [lh, rh].filter((k) => k && k.score >= GUIDE_CONF);
+          const sum = pts.reduce((s, k) => s + movenetToOverlay(k.x, k.y).ny, 0);
+          return sum / pts.length;
+        })();
+        state.pose.frameGuide = hipNy < 0.35 ? "step-closer" : null;
+      } else {
+        state.pose.frameGuide = null;
+      }
+    } else {
+      state.pose.frameGuide = null;
+    }
+  } else {
+    state.pose.frameGuide = null;
+  }
+
   // ── Stable-frame counter + continuous EMA auto-proposal ──────────────────
   if (newPhase === "address") {
     state.pose.stableFrames++;
@@ -1147,6 +1209,7 @@ async function runPoseInference() {
 
   render();
   renderAssessment();
+  renderFrameGuide();
   monitorMaybeSendLive();
 }
 
@@ -1207,120 +1270,83 @@ function detectPhase(handsY, timestamp) {
 }
 
 /**
- * Classify the likely club from the shoulder→hands angle relative to horizontal.
- * Longer clubs → shallower arm plane (smaller angle); shorter clubs → steeper.
- * Thresholds are approximate and tunable from on-course observation.
- */
-function classifyClub(angleDeg) {
-  if (angleDeg < 52) return "Driver";
-  if (angleDeg < 58) return "Wood / Hybrid";
-  if (angleDeg < 63) return "Long Iron";
-  if (angleDeg < 68) return "Mid Iron";
-  if (angleDeg < 73) return "Short Iron";
-  return "Wedge";
-}
-
-/**
- * Auto-propose the swing-plane line while the golfer is at address.
- * Called every inference frame while phase === "address".
+ * Update the swing-plane line using the selected club's lie angle and the
+ * tracked hands (wrist midpoint) position.
  *
- * Geometry:
- *  Primary:  shoulder midpoint → hands midpoint
- *            The arm-plane direction at address correlates with the club shaft angle.
- *            Longer clubs → shallower arm angle; shorter clubs → steeper.
- *            The angle is also used to classify the likely club being held.
- *  Fallback: elbow → wrist direction (used when shoulders are off-screen).
+ * Geometry (normalized overlay coords, y increases downward):
  *
- * EMA smoothing (α = 0.25) prevents jitter; snaps directly on the first address frame.
+ *   topY ────── (swing plane extends upward)
+ *        ↑  shaft direction
+ *      [HANDS]   ← wrist midpoint from pose
+ *        ↑
+ *   [CLUB HEAD]  ← where the shaft meets GROUND_Y
+ *   GROUND_Y ──────────────────────────────
+ *
+ * Lie angle θ = angle shaft makes with the ground (horizontal).
+ * In screen space (y-down), from hands toward club head:
+ *   - RH golfer (trail side is LEFT in mirrored video): dx = -cos(θ), dy = +sin(θ)
+ *   - LH golfer: dx = +cos(θ), dy = +sin(θ)
+ *
+ * EMA smoothing (α = 0.25) smooths out wrist jitter without lag.
  * localStorage writes are throttled to every 10 stable frames.
  */
 function autoProposePlaneLine(keypoints) {
-  const MIN_CONF = 0.40;
-
-  const lw = keypoints[9],  rw = keypoints[10]; // wrists
-  const le = keypoints[7],  re = keypoints[8];  // elbows (fallback)
-  const ls = keypoints[5],  rs = keypoints[6];  // shoulders (primary)
-
-  const lwOk = lw && lw.score >= MIN_CONF, rwOk = rw && rw.score >= MIN_CONF;
-  const leOk = le && le.score >= MIN_CONF, reOk = re && re.score >= MIN_CONF;
-  const lsOk = ls && ls.score >= MIN_CONF, rsOk = rs && rs.score >= MIN_CONF;
-
+  const MIN_CONF = 0.35;
+  const lw = keypoints[9], rw = keypoints[10]; // wrists
+  const lwOk = lw && lw.score >= MIN_CONF;
+  const rwOk = rw && rw.score >= MIN_CONF;
   if (!lwOk && !rwOk) return;
 
-  const toO  = (kp) => movenetToOverlay(kp.x, kp.y);
-  const midO = (a, b) => {
-    if (a && b) return { x: (toO(a).nx + toO(b).nx) / 2, y: (toO(a).ny + toO(b).ny) / 2 };
-    const o = toO(a || b); return { x: o.nx, y: o.ny };
-  };
-
-  const handsO = midO(lwOk ? lw : null, rwOk ? rw : null);
-
-  let dx, dy, bottomY;
-  let resolved = false;
-
-  if (lsOk || rsOk) {
-    // ── Primary: shoulder midpoint → hands midpoint ───────────────────────────
-    // The arm-plane direction at address is a reliable proxy for the club shaft
-    // angle. Longer clubs (driver) → golfer stands more upright → shallower arm
-    // angle from horizontal. Shorter clubs (wedge) → more bent-over → steeper.
-    const shoulderO = midO(lsOk ? ls : null, rsOk ? rs : null);
-    dx = handsO.x - shoulderO.x;
-    dy = handsO.y - shoulderO.y; // positive → downward in screen space
-
-    // Shoulders must sit clearly above the hands, else detection is unreliable.
-    if (dy > 0.08) {
-      bottomY  = clamp01(handsO.y + Math.abs(dy) * 1.4);
-      resolved = true;
-
-      // Classify club from angle of shoulder→hands vector from horizontal.
-      const angleDeg = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
-      state.pose.detectedClub = classifyClub(angleDeg);
-    }
+  // Hands midpoint in overlay space
+  const toO = (kp) => movenetToOverlay(kp.x, kp.y);
+  let handsNx, handsNy;
+  if (lwOk && rwOk) {
+    const lo = toO(lw), ro = toO(rw);
+    handsNx = (lo.nx + ro.nx) / 2;
+    handsNy = (lo.ny + ro.ny) / 2;
+  } else {
+    const o = toO(lwOk ? lw : rw);
+    handsNx = o.nx; handsNy = o.ny;
   }
 
-  if (!resolved) {
-    // ── Fallback: elbow → wrist direction (shoulders off-screen) ─────────────
-    if (!leOk && !reOk) return;
-    const elbowO = midO(leOk ? le : null, reOk ? re : null);
-    dx      = handsO.x - elbowO.x;
-    dy      = handsO.y - elbowO.y;
-    bottomY = 0.85;
-    // Clear club classification when falling back (insufficient keypoints).
-    state.pose.detectedClub = null;
-  }
+  // Hands must be above the ground reference; otherwise the frame isn't usable.
+  if (handsNy >= GROUND_Y - 0.05) return;
 
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const ux  = dx / len;
-  const uy  = dy / len;
+  const club = CLUBS.find((c) => c.id === state.selectedClub) ?? CLUBS[8]; // default 7i
+  const θ    = club.lieAngle * Math.PI / 180;
 
-  // Need a meaningful vertical component to project along Y axis
-  if (Math.abs(uy) < 0.01) return;
+  // Horizontal sign: RH → club head is LEFT of hands (trail side after mirror)
+  const sign = state.handedness === "right" ? -1 : 1;
 
-  const topY = 0.12;
-  const t1   = (topY    - handsO.y) / uy;
-  const t2   = (bottomY - handsO.y) / uy;
+  // Unit vector from hands toward club head (downward along shaft)
+  const ux =  sign * Math.cos(θ);  // horizontal component (left or right)
+  const uy =  Math.sin(θ);         // vertical component (always downward, +y)
 
-  const newX1 = clamp01(handsO.x + t1 * ux);
-  const newX2 = clamp01(handsO.x + t2 * ux);
+  // Club head: follow shaft from hands down to GROUND_Y
+  const tGround  = (GROUND_Y - handsNy) / uy;
+  const clubHeadX = clamp01(handsNx + ux * tGround);
+
+  // Top of line: extend shaft upward from hands to topY
+  const topY = 0.10;
+  const tTop  = (handsNy - topY) / uy;
+  const topX  = clamp01(handsNx - ux * tTop);
 
   // EMA blend (α = 0.25 → settles in ~4 frames ≈ 0.4 s at 10 pose-fps)
   const EMA = 0.25;
   const cur = state.swingPlaneLine.line;
 
   if (state.pose.stableFrames <= 1) {
-    // First frame at address this session: snap directly, no blending artifact
-    state.swingPlaneLine.line = { ...cur, x1: newX1, y1: topY, x2: newX2, y2: bottomY };
+    state.swingPlaneLine.line = { ...cur, x1: topX, y1: topY, x2: clubHeadX, y2: GROUND_Y };
   } else {
     state.swingPlaneLine.line = {
       ...cur,
-      x1: cur.x1 + (newX1 - cur.x1) * EMA,
+      x1: cur.x1 + (topX      - cur.x1) * EMA,
       y1: topY,
-      x2: cur.x2 + (newX2 - cur.x2) * EMA,
-      y2: bottomY,
+      x2: cur.x2 + (clubHeadX - cur.x2) * EMA,
+      y2: GROUND_Y,
     };
   }
 
-  // Throttle localStorage writes
   if (state.pose.stableFrames % 10 === 0) saveSwingPlaneLine();
 }
 
@@ -1469,17 +1495,22 @@ function renderAssessment() {
     `<span class="assessPhase">${phaseLabel}</span>` +
     `<span class="assessPlane">${planeLabel}</span>` +
     (closeLabel ? `<span class="assessClose">${closeLabel}</span>` : "");
+}
 
-  // ── Club detection badge ───────────────────────────────────────────────────
-  if (el.clubBadge) {
-    const club = state.pose.detectedClub;
-    if (club) {
-      el.clubBadge.classList.add("show");
-      el.clubBadge.innerHTML =
-        `<span class="clubLabel">Club</span><span class="clubName">${club}</span>`;
-    } else {
-      el.clubBadge.classList.remove("show");
-    }
+/** Update the frame-fill guide badge. */
+function renderFrameGuide() {
+  if (!el.frameGuide) return;
+  const guide = state.pose.frameGuide;
+  const messages = {
+    "step-back":    "↕ Step back",
+    "step-closer":  "↕ Step closer",
+    "raise-club":   "↑ Raise club into view",
+  };
+  if (guide && messages[guide]) {
+    el.frameGuide.textContent = messages[guide];
+    el.frameGuide.classList.add("show");
+  } else {
+    el.frameGuide.classList.remove("show");
   }
 }
 
@@ -1492,6 +1523,29 @@ function init() {
     if (ui.fps  === "30"    || ui.fps  === "60")       el.fps.value     = ui.fps;
     if (ui.handedness === "right" || ui.handedness === "left") state.handedness = ui.handedness;
   } catch { /* ignore */ }
+
+  // Restore selected club from storage
+  try {
+    const saved = localStorage.getItem(STORAGE_CLUB);
+    if (saved && CLUBS.some((c) => c.id === saved)) state.selectedClub = saved;
+  } catch { /* ignore */ }
+
+  // Populate club selector from CLUBS array
+  if (el.clubSelect) {
+    CLUBS.forEach((club) => {
+      const opt = document.createElement("option");
+      opt.value = club.id;
+      opt.textContent = club.label;
+      el.clubSelect.appendChild(opt);
+    });
+    el.clubSelect.value = state.selectedClub;
+    el.clubSelect.addEventListener("change", () => {
+      state.selectedClub = el.clubSelect.value;
+      try { localStorage.setItem(STORAGE_CLUB, state.selectedClub); } catch { /* ignore */ }
+      // Reset stable-frame counter so next address frame snaps the line immediately
+      state.pose.stableFrames = 0;
+    });
+  }
 
   loadLinesForView(state.view);
   loadSwingPlaneLine();

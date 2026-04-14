@@ -46,6 +46,12 @@ export function decodeSignal(text) {
   return JSON.parse(json);
 }
 
+/** Generate a 5-digit pairing code as a string (00000..99999). */
+export function generatePairCode() {
+  const n = Math.floor(Math.random() * 100000);
+  return String(n).padStart(5, "0");
+}
+
 /**
  * @param {Uint8Array} bytes
  */

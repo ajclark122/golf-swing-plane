@@ -41,14 +41,15 @@
       <section class="monitorPair" aria-label="Pairing">
         <div class="monitorPairCard">
           <div class="monitorPairTitle">Pairing</div>
+          <div class="monitorPairHint">Step 1: Scan iPhone · Step 2: Show QR to iPhone</div>
           <div class="monitorPairRow">
-            <button class="btn primary" type="button" id="btnScanOffer">Scan iPhone Offer</button>
-            <button class="btn" type="button" id="btnPasteOffer">Paste Offer</button>
+            <button class="btn primary" type="button" id="btnScanOffer">Scan iPhone</button>
+            <button class="btn" type="button" id="btnPasteOffer">Paste</button>
           </div>
 
           <div class="monitorPairBody">
             <div class="monitorPairPane" id="paneScanner" hidden>
-              <div class="monitorPairHint">Point the iPad camera at the iPhone offer QR.</div>
+              <div class="monitorPairHint">Point the iPad camera at the iPhone QR.</div>
               <div id="qrReader" class="monitorQrReader" aria-label="QR scanner"></div>
               <div class="monitorPairRow">
                 <button class="btn danger" type="button" id="btnStopScan">Stop scan</button>
@@ -56,15 +57,15 @@
             </div>
 
             <div class="monitorPairPane" id="panePaste" hidden>
-              <div class="monitorPairHint">Paste the iPhone offer text.</div>
+              <div class="monitorPairHint">Paste the iPhone text.</div>
               <textarea id="offerText" class="monitorText" rows="5" spellcheck="false" autocapitalize="off"></textarea>
               <div class="monitorPairRow">
-                <button class="btn primary" type="button" id="btnUseOffer">Use offer</button>
+                <button class="btn primary" type="button" id="btnUseOffer">Continue</button>
               </div>
             </div>
 
             <div class="monitorPairPane" id="paneAnswer" hidden>
-              <div class="monitorPairHint">Show this answer to the iPhone (scan or copy/paste).</div>
+              <div class="monitorPairHint">Show this QR to the iPhone.</div>
               <canvas id="answerQr" class="monitorQrCanvas" width="260" height="260" aria-label="Answer QR"></canvas>
               <textarea id="answerText" class="monitorText" rows="4" spellcheck="false" readonly></textarea>
               <div class="monitorPairRow">

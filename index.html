@@ -161,16 +161,16 @@
               <div class="monitorCardTitle">Pair iPad Monitor</div>
               <button id="btnMonitorClose" class="btn small" type="button">Close</button>
             </div>
-            <div class="monitorCardSub" id="monitorPairStatus">Step 1: Show offer QR to iPad</div>
+            <div class="monitorCardSub" id="monitorPairStatus">Step 1: iPad scans this QR · Step 2: iPhone scans iPad QR</div>
 
             <div class="monitorOfferRow">
               <canvas id="monitorOfferQr" class="monitorQrCanvas" width="260" height="260" aria-label="Offer QR"></canvas>
               <div class="monitorOfferCol">
-                <div class="monitorHint">On the iPad, open <strong>Monitor</strong> and scan this offer.</div>
+                <div class="monitorHint">On the iPad, open <strong>Monitor</strong> and scan this QR.</div>
                 <textarea id="monitorOfferText" class="monitorText" rows="4" spellcheck="false" readonly></textarea>
                 <div class="monitorBtnRow">
-                  <button id="btnMonitorNewOffer" class="btn primary" type="button">New offer</button>
-                  <button id="btnMonitorCopyOffer" class="btn" type="button">Copy offer</button>
+                  <button id="btnMonitorNewOffer" class="btn primary" type="button">New QR</button>
+                  <button id="btnMonitorCopyOffer" class="btn" type="button">Copy</button>
                 </div>
               </div>
             </div>
@@ -178,10 +178,10 @@
             <div class="monitorDivider"></div>
 
             <div class="monitorAnswerBlock">
-              <div class="monitorHint">Step 2: Scan the iPad answer QR (recommended) or paste answer text.</div>
+              <div class="monitorHint">After the iPad scans, it will show a QR back. Scan it here to connect.</div>
               <div class="monitorBtnRow">
-                <button id="btnMonitorScanAnswer" class="btn primary" type="button">Scan answer</button>
-                <button id="btnMonitorPasteAnswer" class="btn" type="button">Paste answer</button>
+                <button id="btnMonitorScanAnswer" class="btn primary" type="button">Scan iPad</button>
+                <button id="btnMonitorPasteAnswer" class="btn" type="button">Paste</button>
                 <button id="btnMonitorStopScan" class="btn danger" type="button" hidden>Stop</button>
               </div>
               <div id="monitorAnswerReader" class="monitorQrReader" hidden aria-label="Answer QR scanner"></div>

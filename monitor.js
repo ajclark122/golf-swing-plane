@@ -121,8 +121,13 @@ async function ensurePeer() {
 }
 
 async function useOfferText(text) {
-  const offer = decodeSignal(text);
-  if (!offer?.type || !offer?.sdp) throw new Error("Invalid offer");
+  let offer;
+  try {
+    offer = decodeSignal(text);
+  } catch (e) {
+    throw new Error("Invalid text. Paste the long text from the iPhone pairing screen.");
+  }
+  if (!offer?.type || !offer?.sdp) throw new Error("Invalid QR/text. Rescan or use Copy/Paste from iPhone.");
 
   hideAllPanes();
   setStatus("Creating answer…");
@@ -138,17 +143,21 @@ async function useOfferText(text) {
 
   const encoded = encodeSignal({ type: local.type, sdp: local.sdp });
   el.answerText.value = encoded;
-  await drawQrToCanvas(el.answerQr, encoded);
+  try {
+    await drawQrToCanvas(el.answerQr, encoded);
+  } catch (e) {
+    setStatus("Answer too large for QR. Use Copy on iPad and Paste on iPhone.");
+  }
 
   el.paneAnswer.hidden = false;
-  setStatus("Answer ready (show to iPhone)");
+  setStatus("Ready. Show the QR to iPhone (or Copy/Paste).");
 }
 
 async function drawQrToCanvas(canvas, text) {
   // QRCode is a global from qrcode.min.js
   // @ts-ignore
   await QRCode.toCanvas(canvas, text, {
-    errorCorrectionLevel: "M",
+    errorCorrectionLevel: "L",
     margin: 1,
     width: canvas.width,
     color: { dark: "#ffffff", light: "#00000000" },
@@ -166,7 +175,7 @@ async function startScanner() {
   if (!Html5Qrcode) throw new Error("QR scanner unavailable");
 
   qr = new Html5Qrcode("qrReader");
-  setStatus("Scanning offer…");
+  setStatus("Scanning iPhone…");
 
   // @ts-ignore
   const cameras = await Html5Qrcode.getCameras();
@@ -181,7 +190,7 @@ async function startScanner() {
       try {
         await useOfferText(decodedText);
       } catch (e) {
-        setStatus(`Offer error`);
+        setStatus(e instanceof Error ? e.message : "Scan failed. Try again or use Paste.");
         el.panePaste.hidden = false;
       }
     }
@@ -212,11 +221,11 @@ async function copyAnswer() {
 function init() {
   hideAllPanes();
 
-  el.btnScanOffer.addEventListener("click", () => startScanner().catch(() => setStatus("Scan failed")));
+  el.btnScanOffer.addEventListener("click", () => startScanner().catch(() => setStatus("Scan failed. Allow camera access.")));
   el.btnStopScan.addEventListener("click", () => { stopScanner(); hideAllPanes(); setStatus("Not paired"); });
 
-  el.btnPasteOffer.addEventListener("click", () => { stopScanner(); hideAllPanes(); el.panePaste.hidden = false; setStatus("Paste offer"); });
-  el.btnUseOffer.addEventListener("click", () => useOfferText(el.offerText.value).catch(() => setStatus("Offer error")));
+  el.btnPasteOffer.addEventListener("click", () => { stopScanner(); hideAllPanes(); el.panePaste.hidden = false; setStatus("Paste from iPhone"); });
+  el.btnUseOffer.addEventListener("click", () => useOfferText(el.offerText.value).catch((e) => setStatus(e instanceof Error ? e.message : "Paste failed")));
 
   el.btnCopyAnswer.addEventListener("click", () => copyAnswer());
   el.btnResetPair.addEventListener("click", () => resetAll());

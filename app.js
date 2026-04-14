@@ -231,7 +231,8 @@ async function monitorDrawQr(canvas, text) {
   // QRCode is global from qrcode.min.js
   // @ts-ignore
   await QRCode.toCanvas(canvas, text, {
-    errorCorrectionLevel: "M",
+    // Keep error correction low to allow large payloads (SDP can be big).
+    errorCorrectionLevel: "L",
     margin: 1,
     width: canvas.width,
     color: { dark: "#ffffff", light: "#00000000" },
@@ -240,7 +241,7 @@ async function monitorDrawQr(canvas, text) {
 
 async function monitorNewOffer() {
   monitorResetPeer();
-  monitorSetStatus("Creating offer…");
+  monitorSetStatus("Creating QR…");
 
   monitor.pc = monitorCreatePeer();
   const dc = monitor.pc.createDataChannel("monitor");
@@ -248,20 +249,32 @@ async function monitorNewOffer() {
 
   const offer = await monitor.pc.createOffer();
   await monitor.pc.setLocalDescription(offer);
-  await monitorWaitForIce(monitor.pc, 2400);
+  // Shorter gather keeps SDP smaller; LAN usually has usable host candidates quickly.
+  await monitorWaitForIce(monitor.pc, 900);
 
   const local = monitor.pc.localDescription;
   if (!local) throw new Error("No local description");
 
   const encoded = monitorEncodeSignal({ type: local.type, sdp: local.sdp });
   if (el.monitorOfferText) el.monitorOfferText.value = encoded;
-  if (el.monitorOfferQr) await monitorDrawQr(el.monitorOfferQr, encoded);
-  monitorSetStatus("Step 1: iPad scans offer. Step 2: scan/paste answer.");
+  if (el.monitorOfferQr) {
+    try {
+      await monitorDrawQr(el.monitorOfferQr, encoded);
+    } catch (e) {
+      monitorSetStatus("QR too big to render here — use Copy/Paste.");
+    }
+  }
+  monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
 }
 
 async function monitorUseAnswerText(text) {
   if (!monitor.pc) throw new Error("No offer yet");
-  const answer = monitorDecodeSignal(text);
+  let answer;
+  try {
+    answer = monitorDecodeSignal(text);
+  } catch {
+    throw new Error("Invalid text. Paste/scan the iPad's QR text exactly.");
+  }
   if (!answer?.type || !answer?.sdp) throw new Error("Invalid answer");
   monitorSetStatus("Connecting…");
   await monitor.pc.setRemoteDescription(answer);
@@ -293,7 +306,7 @@ async function monitorScanAnswer() {
   if (!Html5Qrcode) throw new Error("QR scanner unavailable");
 
   monitor.qr = new Html5Qrcode("monitorAnswerReader");
-  monitorSetStatus("Scanning answer…");
+  monitorSetStatus("Scanning iPad…");
 
   // @ts-ignore
   const cameras = await Html5Qrcode.getCameras();
@@ -306,7 +319,11 @@ async function monitorScanAnswer() {
     async (decodedText) => {
       monitorStopScan();
       if (el.monitorAnswerText) el.monitorAnswerText.value = decodedText;
-      await monitorUseAnswerText(decodedText);
+      try {
+        await monitorUseAnswerText(decodedText);
+      } catch (e) {
+        monitorSetStatus("Connect failed. Try scanning again (more light helps).");
+      }
     }
   );
 }
@@ -316,7 +333,7 @@ function monitorPasteAnswerMode() {
   if (el.monitorAnswerReader) el.monitorAnswerReader.hidden = true;
   if (el.monitorAnswerText) el.monitorAnswerText.hidden = false;
   if (el.btnMonitorUseAnswer) el.btnMonitorUseAnswer.hidden = false;
-  monitorSetStatus("Paste the iPad answer, then tap Connect.");
+  monitorSetStatus("Paste the iPad text, then Connect.");
 }
 
 async function monitorCopyOffer() {
@@ -324,11 +341,11 @@ async function monitorCopyOffer() {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    monitorSetStatus("Offer copied.");
+    monitorSetStatus("Copied.");
   } catch {
     el.monitorOfferText?.focus();
     el.monitorOfferText?.select();
-    monitorSetStatus("Select + copy offer.");
+    monitorSetStatus("Select + copy.");
   }
 }
 

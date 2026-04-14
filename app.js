@@ -230,6 +230,8 @@ function monitorDecodeSignal(text) {
 async function monitorDrawQr(canvas, text) {
   // QRCode is global from qrcode.min.js
   // @ts-ignore
+  if (!window.QRCode || typeof QRCode.toCanvas !== "function") throw new Error("QR library failed to load");
+  // @ts-ignore
   await QRCode.toCanvas(canvas, text, {
     // Keep error correction low to allow large payloads (SDP can be big).
     errorCorrectionLevel: "L",
@@ -259,9 +261,12 @@ async function monitorNewOffer() {
   if (el.monitorOfferText) el.monitorOfferText.value = encoded;
   if (el.monitorOfferQr) {
     try {
+      el.monitorOfferQr.hidden = false;
       await monitorDrawQr(el.monitorOfferQr, encoded);
     } catch (e) {
-      monitorSetStatus("QR too big to render here — use Copy/Paste.");
+      if (el.monitorOfferQr) el.monitorOfferQr.hidden = true;
+      const msg = e instanceof Error ? e.message : "QR render failed";
+      monitorSetStatus(`${msg}. Use Copy/Paste.`);
     }
   }
   monitorSetStatus("Step 1: iPad scans this QR · Step 2: scan iPad to connect.");
@@ -303,7 +308,7 @@ async function monitorScanAnswer() {
   // Html5Qrcode is global from html5-qrcode.min.js
   // @ts-ignore
   const Html5Qrcode = window.Html5Qrcode;
-  if (!Html5Qrcode) throw new Error("QR scanner unavailable");
+  if (!Html5Qrcode) throw new Error("QR scanner failed to load");
 
   monitor.qr = new Html5Qrcode("monitorAnswerReader");
   monitorSetStatus("Scanning iPad…");
@@ -313,19 +318,26 @@ async function monitorScanAnswer() {
   const cameraId = cameras?.[0]?.id;
   if (!cameraId) throw new Error("No camera found");
 
-  await monitor.qr.start(
-    { deviceId: { exact: cameraId } },
-    { fps: 10, qrbox: { width: 240, height: 240 } },
-    async (decodedText) => {
-      monitorStopScan();
-      if (el.monitorAnswerText) el.monitorAnswerText.value = decodedText;
-      try {
-        await monitorUseAnswerText(decodedText);
-      } catch (e) {
-        monitorSetStatus("Connect failed. Try scanning again (more light helps).");
+  try {
+    await monitor.qr.start(
+      { deviceId: { exact: cameraId } },
+      { fps: 10, qrbox: { width: 240, height: 240 } },
+      async (decodedText) => {
+        monitorStopScan();
+        if (el.monitorAnswerText) el.monitorAnswerText.value = decodedText;
+        try {
+          await monitorUseAnswerText(decodedText);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Connect failed";
+          monitorSetStatus(`${msg}. Try scanning again.`);
+        }
       }
-    }
-  );
+    );
+  } catch (e) {
+    monitorStopScan();
+    const msg = e instanceof Error ? e.message : "Scan failed";
+    monitorSetStatus(`${msg}. If the swing camera is on, stop it first.`);
+  }
 }
 
 function monitorPasteAnswerMode() {
@@ -1471,9 +1483,9 @@ function init() {
       }
     }, { passive: true });
   }
-  el.btnMonitorNewOffer?.addEventListener("click", () => monitorNewOffer().catch(() => monitorSetStatus("Offer failed.")));
+  el.btnMonitorNewOffer?.addEventListener("click", () => monitorNewOffer().catch((e) => monitorSetStatus(e instanceof Error ? e.message : "QR failed")));
   el.btnMonitorCopyOffer?.addEventListener("click", () => monitorCopyOffer());
-  el.btnMonitorScanAnswer?.addEventListener("click", () => monitorScanAnswer().catch(() => monitorSetStatus("Scan failed.")));
+  el.btnMonitorScanAnswer?.addEventListener("click", () => monitorScanAnswer().catch((e) => monitorSetStatus(e instanceof Error ? e.message : "Scan failed")));
   el.btnMonitorStopScan?.addEventListener("click", () => { monitorStopScan(); monitorSetStatus("Scan stopped."); });
   el.btnMonitorPasteAnswer?.addEventListener("click", () => {
     if (!monitor.pc) monitorNewOffer().catch(() => {});

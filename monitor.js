@@ -37,6 +37,14 @@ function setStatus(msg) {
   el.status.textContent = msg;
 }
 
+function hintForError(e) {
+  const msg = e instanceof Error ? e.message : String(e || "");
+  if (/camera|permission|NotAllowedError|Permission/i.test(msg)) return "Allow camera access in Safari settings, then try again.";
+  if (/No camera|NotFoundError/i.test(msg)) return "No camera found. Make sure Safari has camera access.";
+  if (/Invalid/i.test(msg)) return "Rescan, or use Copy on iPhone and Paste here (must be the full text).";
+  return "Try again with more light and hold steady.";
+}
+
 function hideAllPanes() {
   el.paneScanner.hidden = true;
   el.panePaste.hidden = true;
@@ -175,7 +183,7 @@ async function startScanner() {
   if (!Html5Qrcode) throw new Error("QR scanner unavailable");
 
   qr = new Html5Qrcode("qrReader");
-  setStatus("Scanning iPhone…");
+  setStatus("Scanning iPhone… (allow camera)");
 
   // @ts-ignore
   const cameras = await Html5Qrcode.getCameras();
@@ -190,7 +198,8 @@ async function startScanner() {
       try {
         await useOfferText(decodedText);
       } catch (e) {
-        setStatus(e instanceof Error ? e.message : "Scan failed. Try again or use Paste.");
+        const msg = e instanceof Error ? e.message : "Scan failed.";
+        setStatus(`${msg} ${hintForError(e)}`);
         el.panePaste.hidden = false;
       }
     }
@@ -221,11 +230,16 @@ async function copyAnswer() {
 function init() {
   hideAllPanes();
 
-  el.btnScanOffer.addEventListener("click", () => startScanner().catch(() => setStatus("Scan failed. Allow camera access.")));
+  el.btnScanOffer.addEventListener("click", () => startScanner().catch((e) => setStatus(`Scan failed. ${hintForError(e)}`)));
   el.btnStopScan.addEventListener("click", () => { stopScanner(); hideAllPanes(); setStatus("Not paired"); });
 
   el.btnPasteOffer.addEventListener("click", () => { stopScanner(); hideAllPanes(); el.panePaste.hidden = false; setStatus("Paste from iPhone"); });
-  el.btnUseOffer.addEventListener("click", () => useOfferText(el.offerText.value).catch((e) => setStatus(e instanceof Error ? e.message : "Paste failed")));
+  el.btnUseOffer.addEventListener("click", () =>
+    useOfferText(el.offerText.value).catch((e) => {
+      const msg = e instanceof Error ? e.message : "Paste failed.";
+      setStatus(`${msg} ${hintForError(e)}`);
+    })
+  );
 
   el.btnCopyAnswer.addEventListener("click", () => copyAnswer());
   el.btnResetPair.addEventListener("click", () => resetAll());

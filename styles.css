@@ -911,6 +911,9 @@ body {
 
 .monitorCard {
   width: min(760px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
   background: linear-gradient(180deg, rgba(14,16,22,0.94) 0%, rgba(10,12,16,0.92) 100%);
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 18px;

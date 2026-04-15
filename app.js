@@ -14,6 +14,9 @@ import { playReadyCue, playSwingSummarySound, primeSwingPingAudio } from "./swin
 /** Set true to show the swing-detection debug overlay on startup. */
 const SWING_DEBUG = false;
 
+/** Set true to enable experimental vision-based club head tracking (Phase 1: visual only). */
+const ENABLE_CLUB_HEAD_TRACKING = true;
+
 const STORAGE_KEY_FRONT  = "golfcam.lines.front.v1";
 const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";
 const STORAGE_SWING_PLANE = "golfcam.swingplane.side.v1";
@@ -137,6 +140,15 @@ const state = {
      * Updated while at address: midpoint(address wrist, shoulder), or wrist−offset if no shoulder.
      */
     swingStartGateNy: /** @type {number|null} */ (null),
+
+    // ── Club head tracking (ENABLE_CLUB_HEAD_TRACKING) ───────────────────────
+    /** Latest vision-detected club head position in overlay-normalised coords. */
+    clubHead: {
+      detected: /** @type {{x:number,y:number}|null} */ (null),
+      trail:    /** @type {{x:number,y:number}[]} */ ([]),
+    },
+    /** Grayscale Uint8Array of previous diff-canvas frame for frame differencing. */
+    prevFrameGray: /** @type {Uint8Array|null} */ (null),
   },
 };
 
@@ -726,6 +738,126 @@ function drawWristDot(c, nx, ny, W, H, color, radiusPx = 10) {
   c.stroke();
 }
 
+/** Draw the vision-detected club head dot (cyan). Kept separate from drawWristDot to allow independent styling. */
+function drawClubHeadDot(c, nx, ny, W, H, color, radiusPx = 9) {
+  c.beginPath();
+  c.arc(nx * W, ny * H, radiusPx, 0, Math.PI * 2);
+  c.fillStyle   = color;
+  c.fill();
+  c.strokeStyle = "rgba(0,0,0,0.50)";
+  c.lineWidth   = 1.5;
+  c.stroke();
+}
+
+// ── Club head frame-diff tracker ──────────────────────────────────────────────
+
+/** Offscreen canvas used for frame differencing — created once, reused every frame. */
+const CLUB_DIFF_W = 320;
+const CLUB_DIFF_H = 180;
+let _clubDiffCanvas = /** @type {HTMLCanvasElement|null} */ (null);
+let _clubDiffCtx    = /** @type {CanvasRenderingContext2D|null} */ (null);
+
+function getClubDiffCtx() {
+  if (!_clubDiffCanvas) {
+    _clubDiffCanvas = document.createElement("canvas");
+    _clubDiffCanvas.width  = CLUB_DIFF_W;
+    _clubDiffCanvas.height = CLUB_DIFF_H;
+    _clubDiffCtx = _clubDiffCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  return _clubDiffCtx;
+}
+
+/**
+ * Frame-differencing club head detector.
+ * Draws the current (mirrored) video frame to a small offscreen canvas, diffs it
+ * against the previous frame's grayscale, and finds the weighted centroid of the
+ * largest motion region (excluding the hands/body area).
+ * Results are stored in state.pose.clubHead.detected and .trail.
+ */
+function runClubHeadFrameDiff() {
+  if (!ENABLE_CLUB_HEAD_TRACKING) return;
+
+  const phase = state.pose.phase;
+  const activePhases = ["backswing", "top", "downswing", "impact"];
+
+  if (!activePhases.includes(phase)) {
+    // Reset trail + detection when not in an active swing phase
+    if (phase === "address") {
+      state.pose.clubHead.detected = null;
+      state.pose.clubHead.trail    = [];
+    }
+    state.pose.prevFrameGray = null;
+    return;
+  }
+
+  const video = el.video;
+  if (!video.videoWidth || !video.videoHeight) return;
+
+  const dctx = getClubDiffCtx();
+  if (!dctx) return;
+
+  const W = CLUB_DIFF_W, H = CLUB_DIFF_H;
+
+  // Draw mirrored video frame (matches the CSS scaleX(-1) on the live view)
+  drawVideoCover(dctx, video, W, H, { mirrorX: true });
+
+  const imageData = dctx.getImageData(0, 0, W, H);
+  const pixels    = imageData.data;
+
+  // Convert to grayscale in a reusable typed array
+  const gray = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const p = i * 4;
+    gray[i] = (0.299 * pixels[p] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + 2]) | 0;
+  }
+
+  const prev = state.pose.prevFrameGray;
+  state.pose.prevFrameGray = gray;
+  if (!prev) return; // need at least 2 frames
+
+  // Hands exclusion zone — avoid tracking arm/body movement as the club
+  const hands    = state.pose.lastWristNorm;
+  const handsX   = hands ? hands.x * W : -9999;
+  const handsY   = hands ? hands.y * H : -9999;
+  const excludeR = W * 0.18; // ~18% of canvas width
+  const excR2    = excludeR * excludeR;
+
+  // Weighted centroid of motion pixels (weight = diff magnitude)
+  let sumX = 0, sumY = 0, sumW = 0;
+  const THRESHOLD = 25;
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const d = Math.abs(gray[y * W + x] - prev[y * W + x]);
+      if (d <= THRESHOLD) continue;
+
+      const ddx = x - handsX, ddy = y - handsY;
+      if (ddx * ddx + ddy * ddy < excR2) continue; // skip hands region
+
+      sumX += x * d;
+      sumY += y * d;
+      sumW += d;
+    }
+  }
+
+  // Require a meaningful motion signal before updating (rejects noise)
+  if (sumW < 800) return;
+
+  const cx = sumX / sumW / W; // normalised [0,1]
+  const cy = sumY / sumW / H;
+
+  // EMA smoothing
+  const EMA  = 0.35;
+  const prev_det = state.pose.clubHead.detected;
+  state.pose.clubHead.detected = prev_det
+    ? { x: prev_det.x + (cx - prev_det.x) * EMA, y: prev_det.y + (cy - prev_det.y) * EMA }
+    : { x: cx, y: cy };
+
+  // Append to trail, capped at 30 points
+  state.pose.clubHead.trail.push({ ...state.pose.clubHead.detected });
+  if (state.pose.clubHead.trail.length > 30) state.pose.clubHead.trail.shift();
+}
+
 function render() {
   const r = el.stage.getBoundingClientRect();
   ctx.clearRect(0, 0, r.width, r.height);
@@ -745,6 +877,18 @@ function render() {
         ? [17, 13, 9, 6][lv]
         : 11;
       drawWristDot(ctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, r.width, r.height, color, rDot);
+    }
+
+    // Club head trail + dot (Phase 1 visual — no assessment wired yet)
+    if (ENABLE_CLUB_HEAD_TRACKING) {
+      const trail = state.pose.clubHead.trail;
+      for (let i = 0; i < trail.length; i++) {
+        const alpha = 0.15 + 0.55 * (i / Math.max(trail.length - 1, 1));
+        drawClubHeadDot(ctx, trail[i].x, trail[i].y, r.width, r.height, `rgba(0,220,220,${alpha.toFixed(2)})`, 4);
+      }
+      if (state.pose.clubHead.detected) {
+        drawClubHeadDot(ctx, state.pose.clubHead.detected.x, state.pose.clubHead.detected.y, r.width, r.height, "#00dcdc", 9);
+      }
     }
   }
 
@@ -1009,6 +1153,18 @@ function drawCompositeFrame() {
         : 11;
       drawWristDot(cctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, w, h, color, rDot);
     }
+
+    // Club head trail + dot (matches live render)
+    if (ENABLE_CLUB_HEAD_TRACKING) {
+      const trail = state.pose.clubHead.trail;
+      for (let i = 0; i < trail.length; i++) {
+        const alpha = 0.15 + 0.55 * (i / Math.max(trail.length - 1, 1));
+        drawClubHeadDot(cctx, trail[i].x, trail[i].y, w, h, `rgba(0,220,220,${alpha.toFixed(2)})`, 4);
+      }
+      if (state.pose.clubHead.detected) {
+        drawClubHeadDot(cctx, state.pose.clubHead.detected.x, state.pose.clubHead.detected.y, w, h, "#00dcdc", 9);
+      }
+    }
   }
 }
 
@@ -1163,6 +1319,9 @@ function resetPoseState() {
   state.pose.sawTopThisSwing = false;
   state.pose.backswingConsecutiveFrames = 0;
   state.pose.swingStartGateNy = null;
+  state.pose.clubHead.detected = null;
+  state.pose.clubHead.trail    = [];
+  state.pose.prevFrameGray     = null;
   dismissSwingSummary();
 }
 
@@ -1208,6 +1367,10 @@ function poseLoop() {
       state.pose.inferring = true;
       try { await runPoseInference(); } catch { /* ignore */ }
       state.pose.inferring = false;
+    }
+    // Club head frame diff runs every 2nd frame (~15 Hz) — zero-cost when flag is off
+    if (ENABLE_CLUB_HEAD_TRACKING && state.pose.frameCount % 2 === 0) {
+      runClubHeadFrameDiff();
     }
     poseLoop();
   });
@@ -1321,6 +1484,12 @@ async function runPoseInference() {
       state.pose.addressWristX = null;
       state.pose.addressWristY = null;
       state.pose.wristHistory  = [];
+      // Clear club head trail for next swing
+      if (ENABLE_CLUB_HEAD_TRACKING) {
+        state.pose.clubHead.detected = null;
+        state.pose.clubHead.trail    = [];
+        state.pose.prevFrameGray     = null;
+      }
     }
     if (newPhase === "impact" && !state.pose.swingCompleted && isFullSwingForSummary()) {
       triggerSwingSummary();

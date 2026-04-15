@@ -1938,14 +1938,8 @@ function init() {
     { once: true, capture: true, passive: true }
   );
 
-  // Triple-tap the assessment badge to toggle the swing-detection debug overlay.
-  let _debugTapCount = 0, _debugTapTimer = 0;
-  el.assessment?.addEventListener("pointerdown", () => {
-    _debugTapCount++;
-    clearTimeout(_debugTapTimer);
-    _debugTapTimer = window.setTimeout(() => { _debugTapCount = 0; }, 600);
-    if (_debugTapCount >= 3) { _debugTapCount = 0; toggleSwingDebug(); }
-  }, { passive: true });
+  // Debug overlay is always on until further notice.
+  toggleSwingDebug();
 
   el.btnStartStop.addEventListener("click",  () => (state.ready ? stopCamera() : startCamera()));
   el.btnAdd.addEventListener("click",        () => addLine());

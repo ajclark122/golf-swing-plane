@@ -44,6 +44,13 @@ const CLUBS = [
 /** Fixed ground reference in normalized overlay coords (y increases downward). */
 const GROUND_Y = 0.92;
 
+/**
+ * Camera perspective causes apparent lie angles to differ from physical values.
+ * This offset is added to all club lie angles at compute time; tune it until the
+ * yellow line visually matches the club shaft at address.
+ */
+const CLUB_LIE_OFFSET = 6;
+
 /** @typedef {{id:string,x1:number,y1:number,x2:number,y2:number,color:string,width:number}} Line */
 
 const state = {
@@ -106,6 +113,7 @@ const state = {
     summaryTimerHandle: /** @type {ReturnType<typeof setTimeout>|null} */ (null),
     frameGuide:    /** @type {null|"step-back"|"step-closer"|"raise-club"} */ (null),
     shoulderNy:    /** @type {number|null} */ (null), // EMA-smoothed shoulder height at address
+    planeLocked:   false, // true once the line has settled — won't move during swing
   },
 };
 
@@ -698,12 +706,7 @@ function render() {
 function setStartStopState(running) {
   if (!el.btnStartStop) return;
   el.btnStartStop.setAttribute("aria-label", running ? "Stop camera" : "Start camera");
-  const svg = el.btnStartStop.querySelector(".btnIcon svg");
-  if (!svg) return;
-  // Play triangle → stop square
-  svg.innerHTML = running
-    ? '<rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" opacity="0.92"/>'
-    : '<path d="M8 5v14l11-7-11-7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>';
+  el.btnStartStop.textContent = running ? "Stop Camera" : "Start Camera";
 }
 
 async function startCamera() {
@@ -811,8 +814,8 @@ function setHandedness(h) {
   localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps?.value || "30", handedness: h }));
   el.btnHandRight.classList.toggle("active", h === "right");
   el.btnHandLeft.classList.toggle("active",  h === "left");
-  // Reset stable-frame counter so the plane line re-snaps immediately at next address frame
   state.pose.stableFrames = 0;
+  state.pose.planeLocked  = false;
 }
 
 // ── View toggle ───────────────────────────────────────────────────────────────
@@ -1028,6 +1031,7 @@ function resetPoseState() {
   state.pose.downswingLevelLog = [];
   state.pose.swingCompleted = false;
   state.pose.shoulderNy     = null;
+  state.pose.planeLocked    = false;
   dismissSwingSummary();
 }
 
@@ -1182,10 +1186,16 @@ async function runPoseInference() {
     state.pose.frameGuide = null;
   }
 
-  // ── Stable-frame counter, shoulder tracking + continuous plane line proposal ─
+  // ── Stable-frame counter, shoulder tracking + plane line proposal ────────────
+  // The line updates while at address until it has settled (planeLocked = true).
+  // Once locked it won't move during the swing; recalibrate or club-change unlocks.
+  const LOCK_FRAMES = 15; // ~1.5 s at 10 pose-fps
   if (newPhase === "address") {
     state.pose.stableFrames++;
-    autoProposePlaneLine(kps); // every frame; EMA-smoothed inside the function
+    if (!state.pose.planeLocked) {
+      autoProposePlaneLine(kps);
+      if (state.pose.stableFrames >= LOCK_FRAMES) state.pose.planeLocked = true;
+    }
 
     // Track shoulder height so the assessment gate knows when hands pass shoulder level.
     const ls = kps[5], rs = kps[6];
@@ -1205,8 +1215,9 @@ async function runPoseInference() {
   // ── Plane assessment (side view, active swing only, hands above shoulder) ──
   // Only meaningful once the hands have clearly risen past the shoulders; before
   // that any "above/below" reading is noise from a small address waggle.
-  const handsAboveShoulder = state.pose.shoulderNy !== null
-    && handsNorm.y < state.pose.shoulderNy;
+  // If shoulders were never confidently detected, don't gate assessment — show it anyway.
+  const handsAboveShoulder = state.pose.shoulderNy === null
+    || handsNorm.y < state.pose.shoulderNy;
 
   if (state.view === "side" && newPhase !== "address" && handsAboveShoulder) {
     assessPlane(handsNorm.x, handsNorm.y);
@@ -1342,7 +1353,7 @@ function autoProposePlaneLine(keypoints) {
   if (handsNy >= groundNy - 0.05) return;
 
   const club = CLUBS.find((c) => c.id === state.selectedClub) ?? CLUBS[8]; // default 7i
-  const θ    = club.lieAngle * Math.PI / 180;
+  const θ    = (club.lieAngle + CLUB_LIE_OFFSET) * Math.PI / 180;
 
   // Horizontal sign: RH → club head is LEFT of hands (trail side after mirror)
   const sign = state.handedness === "right" ? -1 : 1;
@@ -1571,8 +1582,8 @@ function init() {
     el.clubSelect.addEventListener("change", () => {
       state.selectedClub = el.clubSelect.value;
       try { localStorage.setItem(STORAGE_CLUB, state.selectedClub); } catch { /* ignore */ }
-      // Reset stable-frame counter so next address frame snaps the line immediately
       state.pose.stableFrames = 0;
+      state.pose.planeLocked  = false;
     });
   }
 
@@ -1595,9 +1606,9 @@ function init() {
   el.btnHandLeft.addEventListener("click",   () => setHandedness("left"));
 
   if (el.btnRecalibrate) {
-    // Resets stable-frame counter so the next address frame snaps directly (no EMA blend)
     el.btnRecalibrate.addEventListener("click", () => {
       state.pose.stableFrames = 0;
+      state.pose.planeLocked  = false;
       setStatus("Re-calibrating — stand at address…");
     });
   }

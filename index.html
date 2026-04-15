@@ -44,15 +44,15 @@
           </div>
 
           <div class="dock">
-            <!-- Row 1: primary session controls -->
+            <!-- Row 1: camera start/stop — full width so it's easy to tap -->
             <div class="group row1">
-              <button id="btnStartStop" class="btn primary iconOnly" type="button" aria-label="Start camera">
-                <span class="btnIcon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M8 5v14l11-7-11-7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                  </svg>
-                </span>
+              <button id="btnStartStop" class="btn primary fullWidth" type="button" aria-label="Start camera">
+                Start Camera
               </button>
+            </div>
+
+            <!-- Row 2: view, handedness, club -->
+            <div class="group row2">
               <div class="seg" role="group" aria-label="View mode">
                 <button id="btnViewFront" class="segBtn active" type="button" title="Front view">F</button>
                 <button id="btnViewSide"  class="segBtn"        type="button" title="Side view">S</button>
@@ -65,8 +65,8 @@
               <select id="clubSelect" class="select clubSelect" aria-label="Select club"></select>
             </div>
 
-            <!-- Row 2: line management tools -->
-            <div class="group row2">
+            <!-- Row 3: line management tools -->
+            <div class="group row3a">
               <button id="btnAdd" class="btn iconOnly" type="button" disabled aria-label="Add line">
                 <span class="btnIcon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
@@ -100,7 +100,7 @@
               </button>
             </div>
 
-            <!-- Row 3: recording controls -->
+            <!-- Row 4: recording controls -->
             <div class="group row3">
               <select id="fps" class="select" disabled aria-label="Recording FPS">
                 <option value="30">30 fps</option>

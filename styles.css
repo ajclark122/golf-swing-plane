@@ -112,16 +112,18 @@ body {
 }
 
 .hud.bottom {
-  /* Drawer: flush to bottom edge, handle peeks above the fold */
-  bottom: 0;
+  /* Sit above the iOS home indicator so the handle doesn't conflict with the
+     system swipe-up gesture. env(safe-area-inset-bottom) is 34px on Face ID
+     iPhones; we add a 4px visual gap on top of that. */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
   left: 10px;
   right: 10px;
   margin: 0;
-  border-radius: var(--radius) var(--radius) 0 0;
+  border-radius: var(--radius) var(--radius) var(--radius) var(--radius);
   justify-content: center;
   /* No top padding — the hudHandle provides that height */
-  padding: 0 var(--dock-pad) max(var(--dock-pad), env(safe-area-inset-bottom));
-  /* Collapsed: only the handle (36px) peeks above the screen bottom */
+  padding: 0 var(--dock-pad) var(--dock-pad);
+  /* Collapsed: only the handle (36px) peeks above the bottom position */
   transform: translateY(calc(100% - 36px));
   transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
   overflow: hidden;
@@ -411,11 +413,13 @@ body {
 }
 
 .group.row1 {
-  justify-content: space-between;
+  width: 100%;
+  justify-content: stretch;
 }
 
 .group.row2,
-.group.row3 {
+.group.row3,
+.group.row3a {
   justify-content: space-between;
 }
 
@@ -440,7 +444,8 @@ body {
 }
 
 .group.row2 .btn,
-.group.row3 .btn {
+.group.row3 .btn,
+.group.row3a .btn {
   flex: 0 0 auto;
 }
 
@@ -451,22 +456,34 @@ body {
   padding-right: 12px;
 }
 
-.group.row1 .segBtn {
+.group.row2 .segBtn {
   padding-left: 16px;
   padding-right: 16px;
 }
 
-.group.row1 .seg {
+.group.row2 .seg {
   flex: 0 0 auto;
 }
 
+/* Row 1: full-width Start Camera button */
 .group.row1 {
-  gap: 12px;
+  gap: 0;
+  padding: 6px 8px;
+}
+
+.btn.fullWidth {
+  width: 100%;
   justify-content: center;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  height: 48px;
+  border-radius: 14px;
 }
 
 .group.row2,
-.group.row3 {
+.group.row3,
+.group.row3a {
   gap: 12px;
 }
 

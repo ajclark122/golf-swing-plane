@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0b0f19" />
+    <title>Golf Monitor</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="monitorRoot" aria-label="Swing monitor">
+      <header class="monitorHeader">
+        <div class="monitorTitle">
+          <div class="brandMark" aria-hidden="true"></div>
+          <div>
+            <div class="monitorTitleTop">Golf Monitor</div>
+            <div class="monitorTitleSub">Live swing-plane tiles (no video)</div>
+          </div>
+        </div>
+        <div class="monitorStatus" id="monitorStatus" role="status" aria-live="polite">Not paired</div>
+      </header>
+
+      <section class="monitorGrid" aria-label="Swing tiles">
+        <div class="monitorTile live" id="tileLive">
+          <div class="monitorTileLabel">Live</div>
+          <div class="monitorTileBig" id="liveIcon"><span class="monitorTileGlyph" aria-hidden="true">—</span></div>
+          <div class="monitorTileMeta" id="liveMeta">Waiting…</div>
+        </div>
+        <div class="monitorTile backswing" id="tileBackswing">
+          <div class="monitorTileLabel">Backswing</div>
+          <div class="monitorTileBig" id="backIcon"><span class="monitorTileGlyph" aria-hidden="true">—</span></div>
+          <div class="monitorTileMeta" id="backMeta">No data</div>
+        </div>
+        <div class="monitorTile downswing" id="tileDownswing">
+          <div class="monitorTileLabel">Downswing</div>
+          <div class="monitorTileBig" id="downIcon"><span class="monitorTileGlyph" aria-hidden="true">—</span></div>
+          <div class="monitorTileMeta" id="downMeta">No data</div>
+        </div>
+      </section>
+
+      <section class="monitorPair" aria-label="Pairing">
+        <div class="monitorPairCard">
+          <div class="monitorPairTitle">Monitor</div>
+
+          <!-- Shown before an offer arrives -->
+          <div id="pairIdle">
+            <div class="monitorPairHint">This page should open from iPhone via AirDrop.</div>
+            <div class="monitorPairRow">
+              <button class="btn primary" type="button" id="btnPasteOffer">Paste from iPhone</button>
+            </div>
+            <div id="panePaste" hidden>
+              <textarea id="offerText" class="monitorText" rows="4" spellcheck="false" autocapitalize="off" placeholder="Paste the link or offer text here…"></textarea>
+              <div class="monitorPairRow">
+                <button class="btn primary" type="button" id="btnUseOffer">Use offer</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Shown after the offer is processed and an answer is ready -->
+          <div id="pairAnswer" hidden>
+            <div class="monitorPairHint" id="answerHint">Answer ready</div>
+            <div class="monitorPairRow">
+              <button class="btn" type="button" id="btnCopyAnswer">Copy (fallback)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./monitor.js"></script>
+  </body>
+</html>

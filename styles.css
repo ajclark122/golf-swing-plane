@@ -112,27 +112,75 @@ body {
 }
 
 .hud.bottom {
-  bottom: env(safe-area-inset-bottom);
+  /* Sit above the iOS home indicator so the handle doesn't conflict with the
+     system swipe-up gesture. env(safe-area-inset-bottom) is 34px on Face ID
+     iPhones; we add a 4px visual gap on top of that. */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 4px);
+  left: 10px;
+  right: 10px;
+  margin: 0;
+  border-radius: var(--radius) var(--radius) var(--radius) var(--radius);
   justify-content: center;
-  padding: var(--dock-pad);
-}
-
-.hud.bottom {
-  /* Safari sometimes lets wide flex children bleed past rounded box.
-     Force the dock to size within the panel. */
+  /* No top padding — the hudHandle provides that height */
+  padding: 0 var(--dock-pad) var(--dock-pad);
+  /* Collapsed: only the handle (36px) peeks above the bottom position */
+  transform: translateY(calc(100% - 36px));
+  transition: transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
   overflow: hidden;
+  /* Ensure the dock can't exceed available width */
+  flex-direction: column;
+  align-items: center;
 }
 
-.hud.hidden {
+.hud.bottom.expanded {
+  transform: translateY(0);
+}
+
+/* During active recording: completely slide below screen */
+.hud.bottom.recording {
+  transform: translateY(100%);
+  pointer-events: none;
+}
+
+/* Top HUD: keep existing fade-out auto-hide */
+.hud.top.hidden {
   opacity: 0;
   pointer-events: none;
-  transform: translateY(10px);
+  transform: translateY(-10px);
+}
+
+.hud.top {
   transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.hud.bottom,
-.hud.top {
-  transition: opacity 180ms ease, transform 180ms ease;
+/* ── Drawer handle ──────────────────────────────────────────────────────────── */
+
+.hudHandle {
+  width: calc(100% + var(--dock-pad) * 2); /* stretch to panel edges */
+  height: 36px;
+  margin: 0 calc(-1 * var(--dock-pad));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  flex-shrink: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.hudHandlePill {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 160ms ease, width 160ms ease;
+}
+
+.hudHandle:hover .hudHandlePill,
+.hudHandle:active .hudHandlePill {
+  background: rgba(255, 255, 255, 0.58);
+  width: 44px;
 }
 
 .seg {
@@ -182,11 +230,6 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  font-size: 96px;
-  font-weight: 900;
-  letter-spacing: -2px;
-  color: rgba(255, 255, 255, 0.94);
-  text-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
   background:
     radial-gradient(700px 500px at 50% 40%, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.42) 70%, rgba(0,0,0,0.55) 100%);
   user-select: none;
@@ -196,6 +239,34 @@ body {
 
 .countdown.show {
   display: flex;
+}
+
+.countdownStack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.countdownNum {
+  font-size: 96px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  color: rgba(255, 255, 255, 0.94);
+  text-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  line-height: 1;
+  min-height: 1em;
+}
+
+.countdownHint {
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.76);
+  text-align: center;
+  max-width: min(340px, 86vw);
+  line-height: 1.35;
+  text-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
 }
 
 .stopFloat {
@@ -365,11 +436,13 @@ body {
 }
 
 .group.row1 {
-  justify-content: space-between;
+  width: 100%;
+  justify-content: stretch;
 }
 
 .group.row2,
-.group.row3 {
+.group.row3,
+.group.row3a {
   justify-content: space-between;
 }
 
@@ -394,7 +467,8 @@ body {
 }
 
 .group.row2 .btn,
-.group.row3 .btn {
+.group.row3 .btn,
+.group.row3a .btn {
   flex: 0 0 auto;
 }
 
@@ -405,37 +479,34 @@ body {
   padding-right: 12px;
 }
 
-.group.row1 .btn.primary {
-  padding-left: 14px;
+.group.row2 .segBtn {
+  padding-left: 16px;
   padding-right: 16px;
 }
 
-.group.row1 .segBtn {
-  padding-left: 14px;
-  padding-right: 14px;
-}
-
-.group.row1 .seg {
+.group.row2 .seg {
   flex: 0 0 auto;
 }
 
-.group.row1 .btn.primary {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.group.row1 .btnLabel {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+/* Row 1: full-width Start Camera button */
 .group.row1 {
-  gap: 12px;
+  gap: 0;
+  padding: 6px 8px;
+}
+
+.btn.fullWidth {
+  width: 100%;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  height: 48px;
+  border-radius: 14px;
 }
 
 .group.row2,
-.group.row3 {
+.group.row3,
+.group.row3a {
   gap: 12px;
 }
 
@@ -507,6 +578,260 @@ body {
   line-height: 1.45;
 }
 
+/* ── Post-swing summary overlay ──────────────────────────────────────────── */
+
+.swingSummary {
+  position: absolute;
+  inset: 0;
+  z-index: 16;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.50);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.swingSummary.show { display: flex; }
+
+.sswCard {
+  width: min(380px, 100%);
+  background: linear-gradient(180deg, rgba(15, 17, 24, 0.97) 0%, rgba(10, 12, 18, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 26px;
+  padding: 22px 20px 16px;
+  box-shadow: 0 32px 90px rgba(0, 0, 0, 0.70);
+  pointer-events: none; /* tap passes through to parent overlay */
+}
+
+.sswTitle {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.sswRow {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 0;
+  align-items: start;
+}
+
+.sswDivider {
+  background: rgba(255, 255, 255, 0.10);
+  align-self: stretch;
+}
+
+/* ── Phase cards ─────────────────────────────────── */
+
+.sswPhaseCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 14px;
+}
+
+.sswPhaseName {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1;
+}
+
+.sswPhaseIcon {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  line-height: 1;
+  transform-origin: center;
+  /* default (no data) */
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.40);
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+
+.sswPhaseCard.unknown .sswPhaseIcon.unknown {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.sswPhaseIcon.above {
+  background: rgba(255, 60, 90, 0.18);
+  border-color: rgba(255, 107, 133, 0.60);
+  color: #ff6b85;
+}
+
+.sswPhaseIcon.on {
+  background: rgba(60, 220, 120, 0.16);
+  border-color: rgba(93, 255, 158, 0.55);
+  color: #5dff9e;
+}
+
+.sswPhaseIcon.below {
+  background: rgba(60, 130, 255, 0.18);
+  border-color: rgba(106, 184, 255, 0.55);
+  color: #6ab8ff;
+}
+
+.sswPhaseResult {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.sswPhaseCard.above .sswPhaseResult { color: #ff6b85; }
+.sswPhaseCard.on    .sswPhaseResult { color: #5dff9e; }
+.sswPhaseCard.below .sswPhaseResult { color: #6ab8ff; }
+
+/* ── Dismiss label / countdown ───────────────────── */
+
+.sswDismiss {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.30);
+  margin-top: 14px;
+  pointer-events: none;
+  min-height: 1em;
+}
+
+/* ── Assessment badge ─────────────────────────────────────────────────────── */
+
+.assessment {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 80px);
+  right: calc(env(safe-area-inset-right) + 14px);
+  z-index: 6;
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  min-width: 96px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: rgba(14, 16, 22, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  pointer-events: none;
+  transform-origin: top right;
+  transition: border-color 220ms ease, background 220ms ease, border-width 160ms ease;
+}
+
+.assessment.show {
+  display: flex;
+}
+
+.assessment.above {
+  border-color: rgba(255, 77, 109, 0.55);
+  background: rgba(255, 30, 60, 0.22);
+}
+
+.assessment.on {
+  border-color: rgba(77, 255, 145, 0.50);
+  background: rgba(30, 180, 90, 0.18);
+}
+
+.assessment.below {
+  border-color: rgba(77, 153, 255, 0.50);
+  background: rgba(30, 100, 220, 0.20);
+}
+
+.assessPhase {
+  font-size: 13px;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.58);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.assessPlane {
+  font-size: 20px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.94);
+  letter-spacing: 0.1px;
+  line-height: 1.2;
+}
+
+.assessment.above .assessPlane { color: #ff6b85; }
+.assessment.on    .assessPlane { color: #5dff9e; }
+.assessment.below .assessPlane { color: #6ab8ff; }
+
+/* Level classes: colour border only — no size or scale changes on the phone badge. */
+.assessment.planeL0 { border-width: 2px; }
+.assessment.planeL1 { border-width: 2px; }
+.assessment.planeL2 { border-width: 2px; }
+.assessment.planeL3 { border-width: 3px; }
+
+/* ── Frame-fill guide — full-screen so it’s readable while taking stance ───── */
+
+.frameGuide {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: none;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(28px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  text-align: center;
+  background: rgba(6, 8, 14, 0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  pointer-events: none;
+  font-size: clamp(1.75rem, 7.5vmin, 3.25rem);
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  color: #ffe8a8;
+  text-shadow:
+    0 0 28px rgba(255, 200, 80, 0.35),
+    0 2px 0 rgba(0, 0, 0, 0.55);
+  white-space: pre-line;
+  max-width: 100%;
+}
+
+.frameGuide.show {
+  display: flex;
+}
+
+/* ── Club selector in drawer row 1 ───────────────────────────────────────── */
+
+.clubSelect {
+  /* Compact width — longest label is "3 Wood" (~56px) */
+  min-width: 80px;
+  max-width: 100px;
+  text-align: center;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+/* ── Color-mix fallback ───────────────────────────────────────────────────── */
+
 @supports not (color-mix(in oklab, white 50%, black)) {
   .btn.primary {
     background: rgba(181, 255, 0, 0.18);
@@ -521,4 +846,265 @@ body {
     border-color: rgba(255, 212, 77, 0.35);
   }
 }
+
+/* ── iPad Monitor page ─────────────────────────────────────────────────────── */
+
+.monitorRoot {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 16px;
+}
+
+.monitorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--panel-border-2);
+  background: linear-gradient(180deg, rgba(18,20,28,0.78) 0%, rgba(12,14,20,0.62) 100%);
+  box-shadow: var(--shadow-soft);
+}
+
+.monitorTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.monitorTitleTop {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.monitorTitleSub {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.1;
+}
+
+.monitorStatus {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.monitorGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.monitorTile {
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(14,16,22,0.82) 0%, rgba(10,12,16,0.74) 100%);
+  box-shadow: var(--shadow-soft);
+  padding: 14px 14px 12px;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 240px;
+}
+
+.monitorTileLabel {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.70);
+}
+
+.monitorTileBig {
+  display: grid;
+  place-items: center;
+  font-size: clamp(96px, 16vw, 240px);
+  font-weight: 900;
+  letter-spacing: -2px;
+  line-height: 1;
+  text-shadow: 0 14px 40px rgba(0,0,0,0.55);
+  transition: color 160ms ease;
+}
+
+.monitorTileGlyph {
+  display: inline-block;
+  transform-origin: center;
+  transition: transform 200ms cubic-bezier(0.2, 0.85, 0.25, 1), color 160ms ease;
+}
+
+.monitorTileMeta {
+  font-size: 14px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.84);
+}
+
+/* Wide layout (typical iPad landscape): swing tiles are the focal read — keep
+   header / pairing typography unchanged above. */
+@media (min-width: 901px) {
+  .monitorTile {
+    min-height: 280px;
+    padding: 18px 18px 14px;
+  }
+
+  .monitorTileLabel {
+    font-size: 22px;
+    letter-spacing: 0.55px;
+  }
+
+  .monitorTileBig {
+    font-size: clamp(140px, 22vw, 340px);
+    letter-spacing: -3px;
+  }
+
+  .monitorTileMeta {
+    font-size: 28px;
+    line-height: 1.25;
+  }
+}
+
+.monitorTile.live .monitorTileBig { color: rgba(255,255,255,0.94); }
+.monitorTile.backswing .monitorTileBig { color: #ff6b85; }
+.monitorTile.downswing .monitorTileBig { color: #6ab8ff; }
+
+.monitorPair {
+  display: grid;
+}
+
+.monitorPairCard {
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.14);
+  background: linear-gradient(180deg, rgba(14,16,22,0.82) 0%, rgba(10,12,16,0.74) 100%);
+  box-shadow: var(--shadow-soft);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.monitorPairTitle {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  font-size: 14px;
+}
+
+.monitorPairRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.monitorPairHint {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.monitorPairBody {
+  display: grid;
+  gap: 12px;
+}
+
+.monitorText {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.28);
+  color: rgba(255,255,255,0.92);
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+
+@media (max-width: 900px) {
+  .monitorGrid {
+    grid-template-columns: 1fr;
+  }
+  .monitorTile {
+    min-height: 200px;
+  }
+}
+
+/* iPhone pairing panel (in-app) */
+
+.monitorPanel {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 25;
+  background: rgba(0,0,0,0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.monitorPanel.show {
+  display: flex;
+}
+
+.monitorCard {
+  width: min(760px, 100%);
+  max-height: calc(100dvh - 36px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, rgba(14,16,22,0.94) 0%, rgba(10,12,16,0.92) 100%);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 12px;
+}
+
+.monitorCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monitorCardTitle {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  font-size: 15px;
+}
+
+.monitorCardSub {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.monitorHint {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.monitorBtnRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.monitorDivider {
+  height: 1px;
+  background: rgba(255,255,255,0.10);
+}
+
 

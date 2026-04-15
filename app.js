@@ -11,6 +11,9 @@
 import { displayGlyph, displayPhrase, displayScale, glyphIsTriangle } from "./plane-display.js";
 import { playReadyCue, playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
 
+/** Set true to show the swing-detection debug overlay on startup. */
+const SWING_DEBUG = false;
+
 const STORAGE_KEY_FRONT  = "golfcam.lines.front.v1";
 const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";
 const STORAGE_SWING_PLANE = "golfcam.swingplane.side.v1";
@@ -1998,8 +2001,7 @@ function init() {
     { once: true, capture: true, passive: true }
   );
 
-  // Debug overlay is always on until further notice.
-  toggleSwingDebug();
+  if (SWING_DEBUG) toggleSwingDebug();
 
   el.btnStartStop.addEventListener("click",  () => (state.ready ? stopCamera() : startCamera()));
   el.btnAdd.addEventListener("click",        () => addLine());

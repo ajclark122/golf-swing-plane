@@ -9,7 +9,7 @@
  */
 
 import { displayGlyph, displayPhrase, displayScale, glyphIsTriangle } from "./plane-display.js";
-import { playSwingPing, primeSwingPingAudio } from "./swing-ping.js";
+import { playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
 
 const STORAGE_KEY_FRONT  = "golfcam.lines.front.v1";
 const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";
@@ -1635,7 +1635,13 @@ function triggerSwingSummary() {
   const downswingLevel = dominantLevel(state.pose.downswingLevelLog);
   monitorSendSummary(backswing, downswing, backswingLevel, downswingLevel);
   showSwingSummary(backswing, downswing, backswingLevel, downswingLevel);
-  playSwingPing();
+  const worstLevel =
+    backswingLevel === 3 || downswingLevel === 3 ? 3
+      : backswingLevel === 2 || downswingLevel === 2 ? 2
+        : backswingLevel === 1 || downswingLevel === 1 ? 1
+          : backswingLevel === 0 || downswingLevel === 0 ? 0
+            : null;
+  playSwingSummarySound({ worstLevel });
 }
 
 /**

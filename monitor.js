@@ -6,7 +6,7 @@ import {
   displayScale,
   glyphIsTriangle,
 } from "./plane-display.js";
-import { playSwingPing, primeSwingPingAudio } from "./swing-ping.js";
+import { playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
 
 // ── DOM refs ───────────────────────────────────────────────────────────────────
 
@@ -108,7 +108,13 @@ function applySummary(msg) {
     ? displayPhrase(downPlane, downLevel)
     : "No reading";
 
-  playSwingPing();
+  const worstLevel =
+    backLevel === 3 || downLevel === 3 ? 3
+      : backLevel === 2 || downLevel === 2 ? 2
+        : backLevel === 1 || downLevel === 1 ? 1
+          : backLevel === 0 || downLevel === 0 ? 0
+            : null;
+  playSwingSummarySound({ worstLevel });
 }
 
 /** @param {HTMLDivElement} iconEl tile `.monitorTileBig` wrapper */

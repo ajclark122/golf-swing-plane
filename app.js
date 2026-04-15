@@ -1465,7 +1465,9 @@ async function runPoseInference() {
   // ── Collect per-swing plane logs (after assessment so result is current) ──
   // Use the same height gate as the original code to ensure hands have genuinely risen.
   // Assessment display (wrist dot, badge) stays ungated; only logging is gated here.
-  const allowLog = handsAboveShoulder || pastSwingGate || earlyTakeawayOk || planeTakeawayOk;
+  // Once sawTop is true we've proven a real swing is in progress — always log downswing/impact.
+  const confirmedSwing = state.pose.sawTopThisSwing;
+  const allowLog = confirmedSwing || handsAboveShoulder || pastSwingGate || earlyTakeawayOk || planeTakeawayOk;
   if (state.view === "side" && allowLog && state.pose.planeResult && state.pose.planeLevel !== null) {
     if (newPhase === "backswing" || newPhase === "top") {
       state.pose.backswingLog.push(state.pose.planeResult);

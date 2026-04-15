@@ -12,7 +12,7 @@ import { displayGlyph, displayPhrase, displayScale, glyphIsTriangle } from "./pl
 import { playReadyCue, playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
 
 /** Set true to show the swing-detection debug overlay on startup. */
-const SWING_DEBUG = false;
+const SWING_DEBUG = true;
 
 const STORAGE_KEY_FRONT  = "golfcam.lines.front.v1";
 const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";

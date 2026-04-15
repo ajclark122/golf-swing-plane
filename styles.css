@@ -794,29 +794,35 @@ body {
 .assessment.planeL3 { transform: scale(0.82); }
 .assessment.planeL3 .assessPlane { font-size: 11px; }
 
-/* ── Frame-fill guide badge ───────────────────────────────────────────────── */
+/* ── Frame-fill guide — full-screen so it’s readable while taking stance ───── */
 
 .frameGuide {
   position: absolute;
-  /* Top-left, below the assessment badge on the right */
-  top: calc(env(safe-area-inset-top) + 80px);
-  left: calc(env(safe-area-inset-left) + 14px);
-  z-index: 6;
+  inset: 0;
+  z-index: 12;
   display: none;
+  box-sizing: border-box;
   align-items: center;
-  gap: 6px;
-  padding: 7px 13px;
-  border-radius: 14px;
-  background: rgba(255, 172, 28, 0.18);
-  border: 1px solid rgba(255, 212, 77, 0.45);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top))
+    max(20px, env(safe-area-inset-right))
+    max(28px, env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
+  text-align: center;
+  background: rgba(6, 8, 14, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   pointer-events: none;
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--amber);
-  letter-spacing: 0.2px;
-  white-space: nowrap;
+  font-size: clamp(1.75rem, 7.5vmin, 3.25rem);
+  font-weight: 900;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  color: #ffe8a8;
+  text-shadow:
+    0 0 28px rgba(255, 200, 80, 0.35),
+    0 2px 0 rgba(0, 0, 0, 0.55);
+  white-space: pre-line;
+  max-width: 100%;
 }
 
 .frameGuide.show {

@@ -1326,9 +1326,9 @@ async function runPoseInference() {
     }
   }
 
-  // ── Plane assessment (side view, non-address) ──
-  // Gate: hands above shoulder (stable reference), OR early takeaway after sustained backswing
-  // displacement from address wrist Y (Y increases downward → backswing = smaller y).
+  // ── Plane assessment (side view) ──
+  // At address: assess whenever the plane line is locked (settled) so wrist dot + badge match the line.
+  // In motion: gate reduces noise before shoulder / swing gate (Y increases downward → backswing = smaller y).
   const EARLY_UP_EPS = 0.03;
   const EARLY_BACKSWING_FRAMES = 3;
   const handsAboveShoulder = state.pose.shoulderNy === null
@@ -1340,8 +1340,10 @@ async function runPoseInference() {
     && handsNorm.y < state.pose.addressWristY - EARLY_UP_EPS
     && state.pose.backswingConsecutiveFrames >= EARLY_BACKSWING_FRAMES;
   const allowPlaneAssessment = handsAboveShoulder || earlyTakeawayOk || pastSwingGate;
+  const addressWithLockedPlane = newPhase === "address" && state.pose.planeLocked;
 
-  if (state.view === "side" && newPhase !== "address" && allowPlaneAssessment) {
+  if (state.view === "side" && state.pose.planeLocked
+    && (addressWithLockedPlane || (newPhase !== "address" && allowPlaneAssessment))) {
     assessPlane(handsNorm.x, handsNorm.y);
   } else {
     state.pose.planeResult = null;
@@ -1541,7 +1543,8 @@ function assessPlane(handsNormX, handsNormY) {
   if (len < 0.01) return;
 
   const d  = (dx * (handsNormY - sp.y1) - dy * (handsNormX - sp.x1)) / len;
-  const TH = 0.04; // 4% of normalized width ≈ ~1-2 cm at typical camera distance
+  // Tighter band than before so address / small moves read above vs below more readily.
+  const TH = 0.026;
 
   const abs = Math.abs(d);
   const level = abs <= TH ? 0 : abs <= TH * 2 ? 1 : abs <= TH * 3.5 ? 2 : 3;
@@ -1689,9 +1692,9 @@ function renderFrameGuide() {
   if (!el.frameGuide) return;
   const guide = state.pose.frameGuide;
   const messages = {
-    "step-back":    "↕ Step back",
-    "step-closer":  "↕ Step closer",
-    "raise-club":   "↑ Raise club into view",
+    "step-back":    "STEP BACK\nSo your head and feet fit in frame",
+    "step-closer":  "STEP CLOSER\nSo we can see your hips and feet",
+    "raise-club":   "RAISE THE CLUB\nSo your hands show in frame",
   };
   if (guide && messages[guide]) {
     el.frameGuide.textContent = messages[guide];

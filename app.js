@@ -56,7 +56,7 @@ const GROUND_Y = 0.92;
  * Tune until the yellow line visually matches the club shaft at address.
  * (Driver at 58° looked right for an 8i at 63.5° → we need to subtract ~6°.)
  */
-const CLUB_LIE_OFFSET = -6;
+const CLUB_LIE_OFFSET = -10;
 
 /** @typedef {{id:string,x1:number,y1:number,x2:number,y2:number,color:string,width:number}} Line */
 
@@ -1546,6 +1546,9 @@ function detectPhase(handsNorm, timestamp) {
     if (prev === "address" || prev === "backswing") state.pose.phase = "backswing";
   } else if (avgVel > VEL_DOWN) {
     if (prev === "backswing" || prev === "top") {
+      // A direct backswing→downswing velocity reversal means we passed through
+      // the top without a neutral-velocity frame (fast swing). Count it as top.
+      if (prev === "backswing") state.pose.sawTopThisSwing = true;
       state.pose.phase = "downswing";
     } else if (prev === "downswing") {
       // Hands returned near address height = impact/follow-through

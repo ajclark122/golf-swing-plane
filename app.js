@@ -161,6 +161,7 @@ const el = {
   countdown:      /** @type {HTMLDivElement}    */ (document.getElementById("countdown")),
   countdownNum:   /** @type {HTMLDivElement|null} */ (document.getElementById("countdownNum")),
   countdownHint:  /** @type {HTMLDivElement|null} */ (document.getElementById("countdownHint")),
+  swingDebug:     /** @type {HTMLDivElement|null} */ (document.getElementById("swingDebug")),
   help:           /** @type {HTMLDivElement}    */ (document.getElementById("help")),
   btnDismissHelp: /** @type {HTMLButtonElement} */ (document.getElementById("btnDismissHelp")),
   assessment:     /** @type {HTMLDivElement}    */ (document.getElementById("assessment")),
@@ -1475,6 +1476,7 @@ async function runPoseInference() {
   render();
   renderAssessment();
   renderFrameGuide();
+  renderSwingDebug();
   monitorMaybeSendLive();
 }
 
@@ -1544,9 +1546,12 @@ function detectPhase(handsNorm, timestamp) {
     }
   } else {
     // Low Y velocity but not vertically+horizontally stable.
-    // Backswing→top transition is ok here (hands pausing at peak).
-    // address stays address; only upward velocity or the height gate may start a backswing.
-    if (prev === "backswing") state.pose.phase = "top";
+    // Backswing→top transition is ok here (hands pausing at peak), BUT require a minimum
+    // number of consecutive backswing frames first. This prevents the plane-displacement gate
+    // (which fires in 1 frame) from immediately jumping to "top" before any logs can fill.
+    if (prev === "backswing" && state.pose.backswingConsecutiveFrames >= 3) {
+      state.pose.phase = "top";
+    }
   }
 }
 
@@ -1688,8 +1693,8 @@ function dominantLevel(log) {
 
 /** Min samples for summary. A real swing at ~10 pose-fps yields 5–10 per half;
  *  4 is safe even for fast swings while blocking 2–3 frame lateral-drift glitches. */
-const FULL_SWING_DOWN_SAMPLES = 4;
-const FULL_SWING_BACK_SAMPLES = 4;
+const FULL_SWING_DOWN_SAMPLES = 2;
+const FULL_SWING_BACK_SAMPLES = 2;
 
 function isFullSwingForSummary() {
   const d = state.pose.downswingLog.length;
@@ -1822,6 +1827,46 @@ function renderAssessment() {
     `<span class="assessPlane">${phrase}</span>`;
 }
 
+// ── Swing-detection debug overlay ──────────────────────────────────────────
+let _swingDebugOn = false;
+
+/** Toggle the debug overlay on/off (called from the console or a button). */
+function toggleSwingDebug() {
+  _swingDebugOn = !_swingDebugOn;
+  if (el.swingDebug) el.swingDebug.style.display = _swingDebugOn ? "block" : "none";
+}
+// Expose globally so it can be called from browser console
+/** @ts-ignore */
+window.toggleSwingDebug = toggleSwingDebug;
+
+/** Render swing detection state into the debug overlay (no-op when hidden). */
+function renderSwingDebug() {
+  if (!_swingDebugOn || !el.swingDebug) return;
+  const p = state.pose;
+  const sp = state.swingPlaneLine.line;
+  // Recompute plane projection if references are set
+  let proj = "—";
+  if (p.addressWristX !== null && p.addressWristY !== null && p.lastWristNorm) {
+    const pdx = sp.x1 - sp.x2, pdy = sp.y1 - sp.y2;
+    const plen = Math.hypot(pdx, pdy);
+    if (plen > 0.01) {
+      const raw = ((p.lastWristNorm.x - p.addressWristX) * pdx +
+                   (p.lastWristNorm.y - p.addressWristY) * pdy) / plen;
+      proj = raw.toFixed(3);
+    }
+  }
+  const need = `B≥${FULL_SWING_BACK_SAMPLES} D≥${FULL_SWING_DOWN_SAMPLES}`;
+  el.swingDebug.textContent = [
+    `Phase:  ${p.phase.padEnd(10)} bCons:${p.backswingConsecutiveFrames}`,
+    `Logs:   back=${p.backswingLog.length}  down=${p.downswingLog.length}  (need ${need})`,
+    `sawTop: ${p.sawTopThisSwing}   locked:${p.planeLocked}`,
+    `addrX:  ${p.addressWristX?.toFixed(3) ?? "null"}  addrY:${p.addressWristY?.toFixed(3) ?? "null"}`,
+    `planePrj: ${proj}  (trigger>0.04)`,
+    `gate:   ${p.swingStartGateNy?.toFixed(3) ?? "null"}  shoulder:${p.shoulderNy?.toFixed(3) ?? "null"}`,
+    `▶ tap console: toggleSwingDebug() to hide`,
+  ].join("\n");
+}
+
 /** Update the frame-fill guide badge. */
 function renderFrameGuide() {
   if (!el.frameGuide) return;
@@ -1892,6 +1937,15 @@ function init() {
     () => { void primeSwingPingAudio(); },
     { once: true, capture: true, passive: true }
   );
+
+  // Triple-tap the assessment badge to toggle the swing-detection debug overlay.
+  let _debugTapCount = 0, _debugTapTimer = 0;
+  el.assessment?.addEventListener("pointerdown", () => {
+    _debugTapCount++;
+    clearTimeout(_debugTapTimer);
+    _debugTapTimer = window.setTimeout(() => { _debugTapCount = 0; }, 600);
+    if (_debugTapCount >= 3) { _debugTapCount = 0; toggleSwingDebug(); }
+  }, { passive: true });
 
   el.btnStartStop.addEventListener("click",  () => (state.ready ? stopCamera() : startCamera()));
   el.btnAdd.addEventListener("click",        () => addLine());

@@ -145,3 +145,38 @@ export function playSwingSummarySound({ worstLevel }) {
   else if (worstLevel === 2) playSwingOffBoo();
   else playSwingPing();
 }
+
+/**
+ * “Ready” cue when the plane line locks at address.
+ * Short rising chirp (distinct from summary sounds).
+ */
+export function playReadyCue() {
+  try {
+    const now = Date.now();
+    if (now - lastPlayAt < 250) return;
+
+    const ctx = getOrCreateContext();
+    if (!ctx) return;
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const t0 = ctx.currentTime;
+    const vol = 0.085;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(660, t0);
+    osc.frequency.exponentialRampToValueAtTime(1320, t0 + 0.12);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.18);
+
+    lastPlayAt = now;
+  } catch {
+    /* ignore */
+  }
+}

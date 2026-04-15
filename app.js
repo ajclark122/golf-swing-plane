@@ -9,7 +9,7 @@
  */
 
 import { displayGlyph, displayPhrase, displayScale, glyphIsTriangle } from "./plane-display.js";
-import { playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
+import { playReadyCue, playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
 
 const STORAGE_KEY_FRONT  = "golfcam.lines.front.v1";
 const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";
@@ -189,6 +189,19 @@ function clamp01(v) { return Math.max(0, Math.min(1, v)); }
 
 function uid() { return Math.random().toString(16).slice(2) + Date.now().toString(16); }
 
+function isMenuShowing() {
+  const monitorOpen = el.monitorPanel?.classList.contains("show") ?? false;
+  const helpOpen    = el.help?.classList.contains("show") ?? false;
+  return Boolean(state.ui.drawerOpen || monitorOpen || helpOpen);
+}
+
+function suppressSwingOverlaysIfMenuShowing() {
+  if (!isMenuShowing()) return;
+  dismissSwingSummary();
+  renderAssessment();
+  renderFrameGuide();
+}
+
 // ── Monitor (WebRTC DataChannel) ───────────────────────────────────────────────
 
 const monitor = {
@@ -208,6 +221,7 @@ function monitorShowPanel(show) {
   if (!el.monitorPanel) return;
   el.monitorPanel.classList.toggle("show", show);
   el.monitorPanel.setAttribute("aria-hidden", show ? "false" : "true");
+  if (show) suppressSwingOverlaysIfMenuShowing();
 }
 
 function monitorResetPeer() {
@@ -638,6 +652,7 @@ function resizeCanvasToStage() {
 function setDrawerOpen(open) {
   state.ui.drawerOpen = open;
   el.hudBottom?.classList.toggle("expanded", open);
+  if (open) suppressSwingOverlaysIfMenuShowing();
 }
 
 /** Fade the top HUD in/out. Bottom drawer is managed separately. */
@@ -1314,6 +1329,7 @@ async function runPoseInference() {
   const LOCK_FRAMES = 15; // ~1.5 s at 10 pose-fps
   const PLANE_RELOCK_STILL_MS = 2000;
   const PLANE_LOCK_DRIFT_NORM = 0.012; // ~1.2% of frame — small stance / foot change still counts
+  const wasPlaneLocked = state.pose.planeLocked;
   if (newPhase === "address") {
     state.pose.stableFrames++;
     if (!state.pose.planeLocked) {
@@ -1322,6 +1338,7 @@ async function runPoseInference() {
         state.pose.planeLocked = true;
         state.pose.planeLockHandsNorm = { x: handsNorm.x, y: handsNorm.y };
         state.pose.planeRelockStillSince = null;
+        if (!wasPlaneLocked) playReadyCue();
       }
     } else if (state.view === "side") {
       const ref = state.pose.planeLockHandsNorm;
@@ -1380,11 +1397,10 @@ async function runPoseInference() {
     && state.pose.addressWristY != null
     && handsNorm.y < state.pose.addressWristY - EARLY_UP_EPS
     && state.pose.backswingConsecutiveFrames >= EARLY_BACKSWING_FRAMES;
-  const allowPlaneAssessment = handsAboveShoulder || earlyTakeawayOk || pastSwingGate;
   const addressWithLockedPlane = newPhase === "address" && state.pose.planeLocked;
 
   if (state.view === "side" && state.pose.planeLocked
-    && (addressWithLockedPlane || (newPhase !== "address" && allowPlaneAssessment))) {
+    && (addressWithLockedPlane || newPhase !== "address")) {
     assessPlane(handsNorm.x, handsNorm.y);
   } else {
     state.pose.planeResult = null;
@@ -1628,6 +1644,7 @@ function isFullSwingForSummary() {
 
 function triggerSwingSummary() {
   if (!isFullSwingForSummary()) return;
+  if (isMenuShowing()) return;
   state.pose.swingCompleted = true;
   const backswing = dominantResult(state.pose.backswingLog);
   const downswing = dominantResult(state.pose.downswingLog);
@@ -1653,6 +1670,7 @@ function triggerSwingSummary() {
  */
 function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel) {
   if (!el.swingSummary) return;
+  if (isMenuShowing()) { dismissSwingSummary(); return; }
   dismissSwingSummary(); // clear any running timer first
 
   const phaseCard = (title, plane, level) => {
@@ -1716,7 +1734,7 @@ function renderAssessment() {
   if (!el.assessment) return;
 
   const summaryOpen = el.swingSummary?.classList.contains("show") ?? false;
-  const show = state.view === "side" && state.ready && state.pose.lastWristNorm !== null && !summaryOpen;
+  const show = state.view === "side" && state.ready && state.pose.lastWristNorm !== null && !summaryOpen && !isMenuShowing();
 
   if (!show) {
     el.assessment.classList.remove("show", "above", "on", "below", "planeL0", "planeL1", "planeL2", "planeL3");
@@ -1748,6 +1766,10 @@ function renderAssessment() {
 /** Update the frame-fill guide badge. */
 function renderFrameGuide() {
   if (!el.frameGuide) return;
+  if (isMenuShowing()) {
+    el.frameGuide.classList.remove("show");
+    return;
+  }
   const guide = state.pose.frameGuide;
   const messages = {
     "step-back":    "STEP BACK\nSo your head and feet fit in frame",
@@ -1835,6 +1857,8 @@ function init() {
   el.btnDismissHelp.addEventListener("click", () => {
     localStorage.setItem(STORAGE_HELP, "1");
     el.help.classList.remove("show");
+    renderAssessment();
+    renderFrameGuide();
   });
 
   // Monitor pairing (iPhone sender)

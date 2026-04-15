@@ -1270,8 +1270,12 @@ async function runPoseInference() {
       state.pose.frameGuide = "raise-club";
     } else if (noseOk) {
       const noseNy = movenetToOverlay(nose.x, nose.y).ny;
-      if (noseNy > 0.30) {
-        state.pose.frameGuide = "step-back";  // golfer too close / head cut off top
+      // "Step back" = move away from the lens. Old `noseNy > 0.3` fired when the nose
+      // sat *lower* in frame — typical when you are *farther* from the camera (inverted).
+      // Only warn when the nose crowds the very top of the frame (likely clipping / too close).
+      const stepBack = noseNy < 0.088;
+      if (stepBack) {
+        state.pose.frameGuide = "step-back";
       } else if (hipOk) {
         const hipNy = (() => {
           const pts = [lh, rh].filter((k) => k && k.score >= GUIDE_CONF);
@@ -1285,48 +1289,6 @@ async function runPoseInference() {
     } else {
       state.pose.frameGuide = null;
     }
-
-    // #region agent log
-    {
-      const ts = Date.now();
-      if (noseOk && nose && ts - (globalThis.__golfDbgFgTs || 0) > 650) {
-        globalThis.__golfDbgFgTs = ts;
-        const noseNyDbg = movenetToOverlay(nose.x, nose.y).ny;
-        let hipNyDbg = /** @type {number|null} */ (null);
-        if (hipOk) {
-          const pts = [lh, rh].filter((k) => k && k.score >= GUIDE_CONF);
-          if (pts.length) hipNyDbg = pts.reduce((s, k) => s + movenetToOverlay(k.x, k.y).ny, 0) / pts.length;
-        }
-        let ankleNyDbg = /** @type {number|null} */ (null);
-        const la = kps[15], ra = kps[16];
-        const ANK_CONF = 0.28;
-        const ankles = [la, ra].filter((k) => k && k.score >= ANK_CONF);
-        if (ankles.length) ankleNyDbg = ankles.reduce((s, k) => s + movenetToOverlay(k.x, k.y).ny, 0) / ankles.length;
-        const sr = el.stage.getBoundingClientRect();
-        fetch("http://127.0.0.1:7927/ingest/6001551e-d5fc-4a2d-b18a-c78577cc2c7e", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "fd7713" },
-          body: JSON.stringify({
-            sessionId: "fd7713",
-            hypothesisId: "A",
-            location: "app.js:runPoseInference",
-            message: "frameGuideSide",
-            data: {
-              noseNy: noseNyDbg,
-              noseScore: nose.score,
-              hipNy: hipNyDbg,
-              ankleNy: ankleNyDbg,
-              guide: state.pose.frameGuide,
-              stepBackRuleFired: noseNyDbg > 0.3,
-              videoAR: (el.video.videoWidth || 0) / Math.max(1, el.video.videoHeight || 1),
-              stageAR: sr.width / Math.max(1, sr.height),
-            },
-            timestamp: ts,
-          }),
-        }).catch(() => {});
-      }
-    }
-    // #endregion
   } else {
     state.pose.frameGuide = null;
   }

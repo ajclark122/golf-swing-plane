@@ -1855,15 +1855,13 @@ function renderSwingDebug() {
       proj = raw.toFixed(3);
     }
   }
-  const need = `B≥${FULL_SWING_BACK_SAMPLES} D≥${FULL_SWING_DOWN_SAMPLES}`;
   el.swingDebug.textContent = [
-    `Phase:  ${p.phase.padEnd(10)} bCons:${p.backswingConsecutiveFrames}`,
-    `Logs:   back=${p.backswingLog.length}  down=${p.downswingLog.length}  (need ${need})`,
-    `sawTop: ${p.sawTopThisSwing}   locked:${p.planeLocked}`,
-    `addrX:  ${p.addressWristX?.toFixed(3) ?? "null"}  addrY:${p.addressWristY?.toFixed(3) ?? "null"}`,
-    `planePrj: ${proj}  (trigger>0.04)`,
-    `gate:   ${p.swingStartGateNy?.toFixed(3) ?? "null"}  shoulder:${p.shoulderNy?.toFixed(3) ?? "null"}`,
-    `▶ tap console: toggleSwingDebug() to hide`,
+    `phase:${p.phase} cons:${p.backswingConsecutiveFrames}`,
+    `back:${p.backswingLog.length}/${FULL_SWING_BACK_SAMPLES} down:${p.downswingLog.length}/${FULL_SWING_DOWN_SAMPLES}`,
+    `top:${p.sawTopThisSwing} lock:${p.planeLocked}`,
+    `aX:${p.addressWristX?.toFixed(3)??"null"} aY:${p.addressWristY?.toFixed(3)??"null"}`,
+    `proj:${proj} (>0.04=swing)`,
+    `gate:${p.swingStartGateNy?.toFixed(3)??"null"} sh:${p.shoulderNy?.toFixed(3)??"null"}`,
   ].join("\n");
 }
 

@@ -735,7 +735,7 @@ body {
   -webkit-backdrop-filter: blur(12px);
   pointer-events: none;
   transform-origin: top right;
-  transition: border-color 220ms ease, background 220ms ease, transform 160ms ease;
+  transition: border-color 220ms ease, background 220ms ease, border-width 160ms ease;
 }
 
 .assessment.show {
@@ -758,7 +758,7 @@ body {
 }
 
 .assessPhase {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 800;
   color: rgba(255, 255, 255, 0.58);
   letter-spacing: 0.6px;
@@ -767,40 +767,22 @@ body {
 }
 
 .assessPlane {
-  font-size: 13px;
+  font-size: 20px;
   font-weight: 900;
   color: rgba(255, 255, 255, 0.94);
   letter-spacing: 0.1px;
   line-height: 1.2;
-  transition: font-size 160ms ease, transform 160ms ease;
 }
 
 .assessment.above .assessPlane { color: #ff6b85; }
 .assessment.on    .assessPlane { color: #5dff9e; }
 .assessment.below .assessPlane { color: #6ab8ff; }
 
-/* Closeness to plane (matches DataChannel level 0..3) — badge scales with it */
-.assessClose {
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.35px;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
-  line-height: 1.1;
-}
-
-/* Smaller badge when close to plane, larger when far (matches monitor glyph semantics). */
-.assessment.planeL0 { transform: scale(0.82); }
-.assessment.planeL0 .assessPlane { font-size: 11px; }
-
-.assessment.planeL1 { transform: scale(0.94); }
-.assessment.planeL1 .assessPlane { font-size: 12px; }
-
-.assessment.planeL2 { transform: scale(1.06); }
-.assessment.planeL2 .assessPlane { font-size: 15px; }
-
-.assessment.planeL3 { transform: scale(1.22); }
-.assessment.planeL3 .assessPlane { font-size: 18px; }
+/* Level classes: colour border only — no size or scale changes on the phone badge. */
+.assessment.planeL0 { border-width: 2px; }
+.assessment.planeL1 { border-width: 2px; }
+.assessment.planeL2 { border-width: 2px; }
+.assessment.planeL3 { border-width: 3px; }
 
 /* ── Frame-fill guide — full-screen so it’s readable while taking stance ───── */
 

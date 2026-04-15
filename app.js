@@ -121,6 +121,11 @@ const state = {
     sawTopThisSwing: false,
     /** Consecutive pose frames in backswing (for early takeaway plane gate). */
     backswingConsecutiveFrames: 0,
+    /**
+     * Hands must rise above this Y (overlay, y-down) to count as swing started.
+     * Updated while at address: midpoint(address wrist, shoulder), or wrist−offset if no shoulder.
+     */
+    swingStartGateNy: /** @type {number|null} */ (null),
   },
 };
 
@@ -675,6 +680,14 @@ function drawLineOnCtx(c, line, W, H, selected, handleRadius) {
   }
 }
 
+/** Fill for wrist dot — same hues as `.assessment` / `.sswPhaseIcon` plane states. */
+function planeResultWristFill(/** @type {"above"|"on"|"below"|null} */ plane) {
+  if (plane === "above") return "#ff6b85";
+  if (plane === "below") return "#6ab8ff";
+  if (plane === "on") return "#5dff9e";
+  return "rgba(255,255,255,0.45)";
+}
+
 /** Draw the hands/wrist position dot in the plane-result color. Radius scales with plane closeness (0=on … 3=way off). */
 function drawWristDot(c, nx, ny, W, H, color, radiusPx = 10) {
   c.beginPath();
@@ -699,13 +712,11 @@ function render() {
     drawLineOnCtx(ctx, state.swingPlaneLine.line, r.width, r.height, false, HR);
 
     if (state.pose.lastWristNorm) {
-      const color = state.pose.planeResult === "above" ? "#ff6b85"
-        : state.pose.planeResult === "below" ? "#6ab8ff"
-        : "#5dff9e";
+      const color = planeResultWristFill(state.pose.planeResult);
       const lv = state.pose.planeLevel;
-      const rDot = (lv === 0 || lv === 1 || lv === 2 || lv === 3)
+      const rDot = state.pose.planeResult != null && (lv === 0 || lv === 1 || lv === 2 || lv === 3)
         ? [17, 13, 9, 6][lv]
-        : 10;
+        : 11;
       drawWristDot(ctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, r.width, r.height, color, rDot);
     }
   }
@@ -960,10 +971,12 @@ function drawCompositeFrame() {
   if (state.view === "side") {
     drawLineOnCtx(cctx, state.swingPlaneLine.line, w, h, state.selectedId === "swingplane", HR);
     if (state.pose.lastWristNorm) {
-      const color = state.pose.planeResult === "above" ? "#ff6b85"
-        : state.pose.planeResult === "below" ? "#6ab8ff"
-        : "#5dff9e";
-      drawWristDot(cctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, w, h, color);
+      const color = planeResultWristFill(state.pose.planeResult);
+      const lv = state.pose.planeLevel;
+      const rDot = state.pose.planeResult != null && (lv === 0 || lv === 1 || lv === 2 || lv === 3)
+        ? [17, 13, 9, 6][lv]
+        : 11;
+      drawWristDot(cctx, state.pose.lastWristNorm.x, state.pose.lastWristNorm.y, w, h, color, rDot);
     }
   }
 }
@@ -1115,6 +1128,7 @@ function resetPoseState() {
   state.pose.recalibrateCountdown = false;
   state.pose.sawTopThisSwing = false;
   state.pose.backswingConsecutiveFrames = 0;
+  state.pose.swingStartGateNy = null;
   dismissSwingSummary();
 }
 
@@ -1301,6 +1315,17 @@ async function runPoseInference() {
     state.pose.stableFrames = 0;
   }
 
+  // Swing start height: midpoint between address hands and shoulders (y increases downward).
+  if (newPhase === "address") {
+    if (state.pose.addressWristY != null && state.pose.shoulderNy != null) {
+      state.pose.swingStartGateNy = (state.pose.addressWristY + state.pose.shoulderNy) / 2;
+    } else if (state.pose.addressWristY != null) {
+      state.pose.swingStartGateNy = state.pose.addressWristY - 0.055;
+    } else {
+      state.pose.swingStartGateNy = null;
+    }
+  }
+
   // ── Plane assessment (side view, non-address) ──
   // Gate: hands above shoulder (stable reference), OR early takeaway after sustained backswing
   // displacement from address wrist Y (Y increases downward → backswing = smaller y).
@@ -1308,11 +1333,13 @@ async function runPoseInference() {
   const EARLY_BACKSWING_FRAMES = 3;
   const handsAboveShoulder = state.pose.shoulderNy === null
     || handsNorm.y < state.pose.shoulderNy;
+  const pastSwingGate = state.pose.swingStartGateNy != null
+    && handsNorm.y < state.pose.swingStartGateNy - EARLY_UP_EPS * 0.5;
   const earlyTakeawayOk = newPhase === "backswing"
     && state.pose.addressWristY != null
     && handsNorm.y < state.pose.addressWristY - EARLY_UP_EPS
     && state.pose.backswingConsecutiveFrames >= EARLY_BACKSWING_FRAMES;
-  const allowPlaneAssessment = handsAboveShoulder || earlyTakeawayOk;
+  const allowPlaneAssessment = handsAboveShoulder || earlyTakeawayOk || pastSwingGate;
 
   if (state.view === "side" && newPhase !== "address" && allowPlaneAssessment) {
     assessPlane(handsNorm.x, handsNorm.y);
@@ -1327,7 +1354,7 @@ async function runPoseInference() {
       state.pose.backswingLog.push(state.pose.planeResult);
       state.pose.backswingLevelLog.push(state.pose.planeLevel);
     }
-    if (newPhase === "downswing") {
+    if (newPhase === "downswing" || newPhase === "impact") {
       state.pose.downswingLog.push(state.pose.planeResult);
       state.pose.downswingLevelLog.push(state.pose.planeLevel);
     }
@@ -1352,6 +1379,13 @@ function detectPhase(handsNorm, timestamp) {
   if (hist.length > 12) hist.shift();
   if (hist.length < 4) return;
 
+  const gate = state.pose.swingStartGateNy;
+  const SWING_GATE_HYST = 0.007;
+  if (gate != null && state.pose.phase === "address" && handsY < gate - SWING_GATE_HYST) {
+    state.pose.phase = "backswing";
+    return;
+  }
+
   // Average velocity over last 5 samples (normalized Y / second)
   const recent = hist.slice(-5);
   let totalVel = 0, count = 0;
@@ -1369,8 +1403,8 @@ function detectPhase(handsNorm, timestamp) {
   const meanX  = allX.reduce((a, b) => a + b, 0) / allX.length;
   const stddevX = Math.sqrt(allX.reduce((acc, x) => acc + (x - meanX) ** 2, 0) / allX.length);
 
-  const VEL_UP   = -0.10; // normalized Y/s — moving up fast enough to flag backswing
-  const VEL_DOWN =  0.10; // normalized Y/s — moving down fast enough to flag downswing
+  const VEL_UP   = -0.065; // normalized Y/s — backswing (eased for ~10 pose Hz)
+  const VEL_DOWN =  0.065; // normalized Y/s — downswing
   const STABLE   =  0.008; // very low stddev = standing still at address (X and Y)
 
   const prev = state.pose.phase;
@@ -1538,8 +1572,8 @@ function dominantLevel(log) {
 }
 
 /** Min samples for summary; balanced rule: downswing + (backswing or saw top). */
-const FULL_SWING_DOWN_SAMPLES = 3;
-const FULL_SWING_BACK_SAMPLES = 3;
+const FULL_SWING_DOWN_SAMPLES = 2;
+const FULL_SWING_BACK_SAMPLES = 2;
 
 function isFullSwingForSummary() {
   const d = state.pose.downswingLog.length;

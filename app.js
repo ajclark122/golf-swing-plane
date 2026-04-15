@@ -109,6 +109,7 @@ const state = {
     lastWristNorm: /** @type {{x:number,y:number}|null} */ (null),
     lastGoodAt:    0,
     addressWristY: /** @type {number|null} */ (null),
+    addressWristX: /** @type {number|null} */ (null), // tracked alongside Y for plane-displacement gate
     stableFrames:  0,
     // Per-swing accumulator — stores plane readings during each phase
     backswingLog:       /** @type {string[]} */ ([]),
@@ -1143,6 +1144,7 @@ function resetPoseState() {
   state.pose.lastWristNorm = null;
   state.pose.lastGoodAt    = 0;
   state.pose.addressWristY = null;
+  state.pose.addressWristX = null;
   state.pose.stableFrames  = 0;
   state.pose.backswingLog  = [];
   state.pose.downswingLog  = [];
@@ -1258,6 +1260,32 @@ async function runPoseInference() {
   // ── Phase detection ───────────────────────────────────────────────────────
   const prevPhase = state.pose.phase;
   detectPhase(handsNorm, now);
+
+  // ── Plane-displacement gate (side view, locked plane) ─────────────────────
+  // If hands have moved a meaningful distance upward along the swing plane from
+  // the address position, count that as a backswing regardless of Y-only velocity.
+  // This covers slow/diagonal takeaways that don't show strong pure vertical speed.
+  if (
+    state.view === "side"
+    && state.pose.planeLocked
+    && state.pose.phase === "address"
+    && state.pose.addressWristX !== null
+    && state.pose.addressWristY !== null
+  ) {
+    const sp = state.swingPlaneLine.line;
+    const pdx = sp.x1 - sp.x2; // plane direction toward top (upward-along-plane)
+    const pdy = sp.y1 - sp.y2; // negative (y increases downward)
+    const plen = Math.hypot(pdx, pdy);
+    if (plen > 0.01) {
+      const proj =
+        ((handsNorm.x - state.pose.addressWristX) * pdx +
+          (handsNorm.y - state.pose.addressWristY) * pdy) /
+        plen;
+      // 0.04 norm units along the plane ≈ ~2-3 cm real-world at typical camera distance.
+      if (proj > 0.04) state.pose.phase = "backswing";
+    }
+  }
+
   const newPhase = state.pose.phase;
   state.pose.prevPhase = newPhase;
 
@@ -1397,6 +1425,23 @@ async function runPoseInference() {
     && state.pose.addressWristY != null
     && handsNorm.y < state.pose.addressWristY - EARLY_UP_EPS
     && state.pose.backswingConsecutiveFrames >= EARLY_BACKSWING_FRAMES;
+  // Plane-displacement takeaway: hands have moved along the plane from address.
+  const planeTakeawayOk = newPhase === "backswing"
+    && state.pose.planeLocked
+    && state.pose.addressWristX !== null
+    && state.pose.addressWristY !== null
+    && (() => {
+      const sp = state.swingPlaneLine.line;
+      const pdx = sp.x1 - sp.x2;
+      const pdy = sp.y1 - sp.y2;
+      const plen = Math.hypot(pdx, pdy);
+      if (plen < 0.01) return false;
+      const proj =
+        ((handsNorm.x - state.pose.addressWristX) * pdx +
+          (handsNorm.y - state.pose.addressWristY) * pdy) /
+        plen;
+      return proj > 0.025; // slightly below trigger threshold so logs open early
+    })();
   const addressWithLockedPlane = newPhase === "address" && state.pose.planeLocked;
 
   if (state.view === "side" && state.pose.planeLocked
@@ -1410,7 +1455,7 @@ async function runPoseInference() {
   // ── Collect per-swing plane logs (after assessment so result is current) ──
   // Use the same height gate as the original code to ensure hands have genuinely risen.
   // Assessment display (wrist dot, badge) stays ungated; only logging is gated here.
-  const allowLog = handsAboveShoulder || pastSwingGate || earlyTakeawayOk;
+  const allowLog = handsAboveShoulder || pastSwingGate || earlyTakeawayOk || planeTakeawayOk;
   if (state.view === "side" && allowLog && state.pose.planeResult && state.pose.planeLevel !== null) {
     if (newPhase === "backswing" || newPhase === "top") {
       state.pose.backswingLog.push(state.pose.planeResult);
@@ -1473,10 +1518,11 @@ function detectPhase(handsNorm, timestamp) {
 
   if (stddevY < STABLE && stddevX < STABLE) {
     if (prev !== "address") state.pose.phase = "address";
-    // Smooth exponential update of the reference address Y
+    // Track address reference position (both axes) for plane-displacement gate.
     state.pose.addressWristY = state.pose.addressWristY === null
-      ? handsY
-      : state.pose.addressWristY * 0.9 + handsY * 0.1;
+      ? handsY : state.pose.addressWristY * 0.9 + handsY * 0.1;
+    state.pose.addressWristX = state.pose.addressWristX === null
+      ? handsX : state.pose.addressWristX * 0.9 + handsX * 0.1;
     return;
   }
 

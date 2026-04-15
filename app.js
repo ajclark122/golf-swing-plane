@@ -1301,13 +1301,18 @@ async function runPoseInference() {
       if (!state.pose.swingCompleted && isFullSwingForSummary()) {
         triggerSwingSummary();
       }
-      // Reset accumulators for the next swing
+      // Reset accumulators for the next swing.
+      // Clear address reference so the plane-displacement gate re-establishes
+      // from the user's actual next address position, not the drifted follow-through.
       state.pose.backswingLog  = [];
       state.pose.downswingLog  = [];
       state.pose.backswingLevelLog = [];
       state.pose.downswingLevelLog = [];
       state.pose.swingCompleted = false;
       state.pose.sawTopThisSwing = false;
+      state.pose.addressWristX = null;
+      state.pose.addressWristY = null;
+      state.pose.wristHistory  = [];
     }
     if (newPhase === "impact" && !state.pose.swingCompleted && isFullSwingForSummary()) {
       triggerSwingSummary();

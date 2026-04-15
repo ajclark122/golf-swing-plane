@@ -809,9 +809,9 @@ body {
     max(28px, env(safe-area-inset-bottom))
     max(20px, env(safe-area-inset-left));
   text-align: center;
-  background: rgba(6, 8, 14, 0.88);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: rgba(6, 8, 14, 0.38);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   pointer-events: none;
   font-size: clamp(1.75rem, 7.5vmin, 3.25rem);
   font-weight: 900;

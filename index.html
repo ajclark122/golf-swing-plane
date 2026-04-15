@@ -137,7 +137,12 @@
           Stop
         </button>
 
-        <div class="countdown" id="countdown" aria-hidden="true"></div>
+        <div class="countdown" id="countdown" aria-hidden="true">
+          <div class="countdownStack">
+            <div class="countdownNum" id="countdownNum"></div>
+            <div class="countdownHint" id="countdownHint" hidden></div>
+          </div>
+        </div>
 
         <!-- Post-swing summary overlay (auto-dismisses after 5 s) -->
         <div id="swingSummary" class="swingSummary" role="dialog" aria-live="assertive" aria-atomic="true"></div>

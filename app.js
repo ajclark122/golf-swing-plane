@@ -46,10 +46,11 @@ const GROUND_Y = 0.92;
 
 /**
  * Camera perspective causes apparent lie angles to differ from physical values.
- * This offset is added to all club lie angles at compute time; tune it until the
- * yellow line visually matches the club shaft at address.
+ * Negative = shallower projection → club head moves further from body.
+ * Tune until the yellow line visually matches the club shaft at address.
+ * (Driver at 58° looked right for an 8i at 63.5° → we need to subtract ~6°.)
  */
-const CLUB_LIE_OFFSET = 6;
+const CLUB_LIE_OFFSET = -6;
 
 /** @typedef {{id:string,x1:number,y1:number,x2:number,y2:number,color:string,width:number}} Line */
 
@@ -95,7 +96,9 @@ const state = {
     rafHandle:     /** @type {number|null} */ (null),
     frameCount:    0,
     inferring:     false,
-    wristHistory:  /** @type {{y:number,t:number}[]} */ ([]),
+    wristHistory:  /** @type {{x:number,y:number,t:number}[]} */ ([]),
+    /** True while the post–re-calibrate overlay countdown is running. */
+    recalibrateCountdown: false,
     phase:         /** @type {"address"|"backswing"|"top"|"downswing"|"impact"} */ ("address"),
     prevPhase:     /** @type {"address"|"backswing"|"top"|"downswing"|"impact"} */ ("address"),
     planeResult:   /** @type {"above"|"on"|"below"|null} */ (null),
@@ -114,6 +117,10 @@ const state = {
     frameGuide:    /** @type {null|"step-back"|"step-closer"|"raise-club"} */ (null),
     shoulderNy:    /** @type {number|null} */ (null), // EMA-smoothed shoulder height at address
     planeLocked:   false, // true once the line has settled — won't move during swing
+    /** True if we visited the "top" phase this swing (for full-swing summary gate). */
+    sawTopThisSwing: false,
+    /** Consecutive pose frames in backswing (for early takeaway plane gate). */
+    backswingConsecutiveFrames: 0,
   },
 };
 
@@ -139,6 +146,8 @@ const el = {
   btnStopRec:     /** @type {HTMLButtonElement} */ (document.getElementById("btnStopRec")),
   btnStopFloat:   /** @type {HTMLButtonElement} */ (document.getElementById("btnStopFloat")),
   countdown:      /** @type {HTMLDivElement}    */ (document.getElementById("countdown")),
+  countdownNum:   /** @type {HTMLDivElement|null} */ (document.getElementById("countdownNum")),
+  countdownHint:  /** @type {HTMLDivElement|null} */ (document.getElementById("countdownHint")),
   help:           /** @type {HTMLDivElement}    */ (document.getElementById("help")),
   btnDismissHelp: /** @type {HTMLButtonElement} */ (document.getElementById("btnDismissHelp")),
   assessment:     /** @type {HTMLDivElement}    */ (document.getElementById("assessment")),
@@ -369,8 +378,6 @@ async function monitorApplyAnswer(text) {
 function monitorMaybeSendLive() {
   if (!monitor.connected || !monitor.dc || monitor.dc.readyState !== "open") return;
   const now = Date.now();
-  if (now - monitor.lastSentAt < 100) return; // 10 Hz max
-
   const msg = {
     t:     now,
     view:  state.view,
@@ -379,8 +386,17 @@ function monitorMaybeSendLive() {
     level: state.pose.planeLevel,
     club:  state.selectedClub,
   };
+  const quietAddress = msg.phase === "address" && msg.plane == null;
+  // Live feed: suppress rapid address+waggle noise; once swing is underway, keep responsive.
+  if (quietAddress) {
+    if (now - monitor.lastSentAt < 400) return;
+  } else if (now - monitor.lastSentAt < 100) {
+    return; // 10 Hz max during motion
+  }
+
   const key = `${msg.view}|${msg.phase}|${msg.plane ?? "null"}|${msg.level ?? "x"}|${msg.club ?? ""}`;
-  if (key === monitor.lastKey && now - monitor.lastSentAt < 250) return;
+  const dedupeMs = quietAddress ? 600 : 250;
+  if (key === monitor.lastKey && now - monitor.lastSentAt < dedupeMs) return;
 
   monitor.lastKey = key;
   monitor.lastSentAt = now;
@@ -621,12 +637,12 @@ function setHudHidden(hidden) {
 /** Called on meaningful user interaction — resets idle timer and restores top HUD. */
 function bumpUiActivity() {
   state.ui.lastActiveAt = Date.now();
-  if (state.ui.hidden && !state.recording.active) setHudHidden(false);
+  if (state.ui.hidden && !state.recording.active && !state.pose.recalibrateCountdown) setHudHidden(false);
 }
 
 /** Collapse drawer + fade top HUD after idle. */
 function tickUiAutoHide() {
-  if (state.recording.active || !state.ready) return;
+  if (state.recording.active || !state.ready || state.pose.recalibrateCountdown) return;
   if (Date.now() - state.ui.lastActiveAt >= state.ui.idleMs) {
     setHudHidden(true);
     if (state.ui.drawerOpen) setDrawerOpen(false);
@@ -746,8 +762,20 @@ async function startCamera() {
   }
 }
 
+function hideCountdownOverlay() {
+  el.countdown.classList.remove("show");
+  el.countdown.setAttribute("aria-hidden", "true");
+  if (el.countdownNum) el.countdownNum.textContent = "";
+  if (el.countdownHint) {
+    el.countdownHint.textContent = "";
+    el.countdownHint.hidden = true;
+  }
+}
+
 function stopCamera() {
   if (!state.stream) return;
+  state.pose.recalibrateCountdown = false;
+  hideCountdownOverlay();
   for (const t of state.stream.getTracks()) t.stop();
   state.stream = null;
   state.ready  = false;
@@ -822,6 +850,10 @@ function setHandedness(h) {
 
 function setView(view) {
   if (state.view === view) return;
+  if (state.pose.recalibrateCountdown) {
+    state.pose.recalibrateCountdown = false;
+    hideCountdownOverlay();
+  }
   state.view = view;
   localStorage.setItem(STORAGE_UI, JSON.stringify({ view: state.view, fps: el.fps?.value || "30", handedness: state.handedness }));
   el.btnViewFront.classList.toggle("active", view === "front");
@@ -838,16 +870,63 @@ function setView(view) {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-async function showCountdown(seconds) {
+/**
+ * Full-screen numeric countdown (recording start, re-calibrate, etc.).
+ * @param {number} seconds
+ * @param {{ hint?: string, shouldAbort?: () => boolean }} [opts]
+ */
+async function showCountdown(seconds, opts = {}) {
+  const hint        = opts.hint ?? "";
+  const shouldAbort = opts.shouldAbort ?? (() => false);
+
   el.countdown.classList.add("show");
   el.countdown.setAttribute("aria-hidden", "false");
-  for (let s = seconds; s >= 1; s--) {
-    el.countdown.textContent = String(s);
-    await sleep(1000);
+  if (el.countdownHint) {
+    el.countdownHint.textContent = hint;
+    el.countdownHint.hidden = !hint;
   }
-  el.countdown.textContent = "";
-  el.countdown.classList.remove("show");
-  el.countdown.setAttribute("aria-hidden", "true");
+
+  try {
+    for (let s = seconds; s >= 1; s--) {
+      if (shouldAbort()) return;
+      if (el.countdownNum) el.countdownNum.textContent = String(s);
+      await sleep(1000);
+    }
+  } finally {
+    hideCountdownOverlay();
+  }
+}
+
+/** Collapse UI, show a short countdown, then unlock the swing-plane line for a fresh address capture. */
+async function runRecalibrateCountdown() {
+  if (!state.ready || state.view !== "side" || state.recording.active) return;
+  if (state.pose.recalibrateCountdown) return;
+
+  state.pose.recalibrateCountdown = true;
+  state.ui.lastActiveAt = Date.now();
+  setDrawerOpen(false);
+  setHudHidden(true);
+  el.btnRecalibrate.disabled = true;
+
+  try {
+    await showCountdown(5, {
+      hint: "Return to your stance — controls stay hidden until the count finishes.",
+      shouldAbort: () => !state.ready || !state.pose.recalibrateCountdown,
+    });
+  } finally {
+    state.pose.recalibrateCountdown = false;
+    if (el.btnRecalibrate) {
+      el.btnRecalibrate.disabled = !(state.ready && state.view === "side");
+    }
+  }
+
+  if (!state.ready || state.view !== "side") return;
+
+  state.pose.stableFrames = 0;
+  state.pose.planeLocked  = false;
+  setStatus("Re-calibrating — stand at address…");
+  state.ui.lastActiveAt = Date.now();
+  setHudHidden(false);
 }
 
 function ensureCompositeCanvas() {
@@ -1021,6 +1100,7 @@ function resetPoseState() {
   state.pose.phase         = "address";
   state.pose.prevPhase     = "address";
   state.pose.planeResult   = null;
+  state.pose.planeLevel    = null;
   state.pose.lastWristNorm = null;
   state.pose.lastGoodAt    = 0;
   state.pose.addressWristY = null;
@@ -1032,6 +1112,9 @@ function resetPoseState() {
   state.pose.swingCompleted = false;
   state.pose.shoulderNy     = null;
   state.pose.planeLocked    = false;
+  state.pose.recalibrateCountdown = false;
+  state.pose.sawTopThisSwing = false;
+  state.pose.backswingConsecutiveFrames = 0;
   dismissSwingSummary();
 }
 
@@ -1132,15 +1215,20 @@ async function runPoseInference() {
 
   // ── Phase detection ───────────────────────────────────────────────────────
   const prevPhase = state.pose.phase;
-  detectPhase(handsNorm.y, now);
+  detectPhase(handsNorm, now);
   const newPhase = state.pose.phase;
   state.pose.prevPhase = newPhase;
 
+  if (newPhase === "backswing") state.pose.backswingConsecutiveFrames++;
+  else state.pose.backswingConsecutiveFrames = 0;
+
   // Phase transition bookkeeping
   if (prevPhase !== newPhase) {
+    if (prevPhase !== "top" && newPhase === "top") state.pose.sawTopThisSwing = true;
+
     if (newPhase === "address") {
-      // Returning to rest after a swing — trigger summary if downswing was captured
-      if (!state.pose.swingCompleted && state.pose.downswingLog.length >= 3) {
+      // Full swing only: summary + monitor summary message (not live plane flicker).
+      if (!state.pose.swingCompleted && isFullSwingForSummary()) {
         triggerSwingSummary();
       }
       // Reset accumulators for the next swing
@@ -1149,8 +1237,9 @@ async function runPoseInference() {
       state.pose.backswingLevelLog = [];
       state.pose.downswingLevelLog = [];
       state.pose.swingCompleted = false;
+      state.pose.sawTopThisSwing = false;
     }
-    if (newPhase === "impact" && !state.pose.swingCompleted) {
+    if (newPhase === "impact" && !state.pose.swingCompleted && isFullSwingForSummary()) {
       triggerSwingSummary();
     }
   }
@@ -1212,22 +1301,29 @@ async function runPoseInference() {
     state.pose.stableFrames = 0;
   }
 
-  // ── Plane assessment (side view, active swing only, hands above shoulder) ──
-  // Only meaningful once the hands have clearly risen past the shoulders; before
-  // that any "above/below" reading is noise from a small address waggle.
-  // If shoulders were never confidently detected, don't gate assessment — show it anyway.
+  // ── Plane assessment (side view, non-address) ──
+  // Gate: hands above shoulder (stable reference), OR early takeaway after sustained backswing
+  // displacement from address wrist Y (Y increases downward → backswing = smaller y).
+  const EARLY_UP_EPS = 0.03;
+  const EARLY_BACKSWING_FRAMES = 3;
   const handsAboveShoulder = state.pose.shoulderNy === null
     || handsNorm.y < state.pose.shoulderNy;
+  const earlyTakeawayOk = newPhase === "backswing"
+    && state.pose.addressWristY != null
+    && handsNorm.y < state.pose.addressWristY - EARLY_UP_EPS
+    && state.pose.backswingConsecutiveFrames >= EARLY_BACKSWING_FRAMES;
+  const allowPlaneAssessment = handsAboveShoulder || earlyTakeawayOk;
 
-  if (state.view === "side" && newPhase !== "address" && handsAboveShoulder) {
+  if (state.view === "side" && newPhase !== "address" && allowPlaneAssessment) {
     assessPlane(handsNorm.x, handsNorm.y);
   } else {
     state.pose.planeResult = null;
+    state.pose.planeLevel  = null;
   }
 
   // ── Collect per-swing plane logs (after assessment so result is current) ──
   if (state.view === "side" && state.pose.planeResult && state.pose.planeLevel !== null) {
-    if (newPhase === "backswing") {
+    if (newPhase === "backswing" || newPhase === "top") {
       state.pose.backswingLog.push(state.pose.planeResult);
       state.pose.backswingLevelLog.push(state.pose.planeLevel);
     }
@@ -1244,12 +1340,15 @@ async function runPoseInference() {
 }
 
 /**
- * Rolling wrist-Y window phase detector.
+ * Rolling wrist-position window phase detector (overlay-normalized coords).
  * Canvas Y increases downward: upward hand motion = decreasing Y = backswing.
+ * Address requires both X and Y to be steady over the window (not only vertical).
  */
-function detectPhase(handsY, timestamp) {
+function detectPhase(handsNorm, timestamp) {
+  const handsX = handsNorm.x;
+  const handsY = handsNorm.y;
   const hist = state.pose.wristHistory;
-  hist.push({ y: handsY, t: timestamp });
+  hist.push({ x: handsX, y: handsY, t: timestamp });
   if (hist.length > 12) hist.shift();
   if (hist.length < 4) return;
 
@@ -1262,18 +1361,21 @@ function detectPhase(handsY, timestamp) {
   }
   const avgVel = count > 0 ? totalVel / count : 0;
 
-  // Stability: std dev of full history window
+  // Stability: std dev of X and Y over the full history window
   const allY   = hist.map((h) => h.y);
-  const mean   = allY.reduce((a, b) => a + b, 0) / allY.length;
-  const stddev = Math.sqrt(allY.reduce((acc, y) => acc + (y - mean) ** 2, 0) / allY.length);
+  const meanY  = allY.reduce((a, b) => a + b, 0) / allY.length;
+  const stddevY = Math.sqrt(allY.reduce((acc, y) => acc + (y - meanY) ** 2, 0) / allY.length);
+  const allX   = hist.map((h) => h.x);
+  const meanX  = allX.reduce((a, b) => a + b, 0) / allX.length;
+  const stddevX = Math.sqrt(allX.reduce((acc, x) => acc + (x - meanX) ** 2, 0) / allX.length);
 
   const VEL_UP   = -0.10; // normalized Y/s — moving up fast enough to flag backswing
   const VEL_DOWN =  0.10; // normalized Y/s — moving down fast enough to flag downswing
-  const STABLE   =  0.008; // very low stddev = standing still at address
+  const STABLE   =  0.008; // very low stddev = standing still at address (X and Y)
 
   const prev = state.pose.phase;
 
-  if (stddev < STABLE) {
+  if (stddevY < STABLE && stddevX < STABLE) {
     if (prev !== "address") state.pose.phase = "address";
     // Smooth exponential update of the reference address Y
     state.pose.addressWristY = state.pose.addressWristY === null
@@ -1294,8 +1396,9 @@ function detectPhase(handsY, timestamp) {
       }
     }
   } else {
-    // Low velocity, unstable = transition / top of backswing
+    // Low Y velocity but not vertically+horizontally stable — setup waggle, lateral drift, etc.
     if (prev === "backswing") state.pose.phase = "top";
+    else if (prev === "address") state.pose.phase = "backswing";
   }
 }
 
@@ -1434,9 +1537,19 @@ function dominantLevel(log) {
   return best === undefined ? null : Number(best);
 }
 
+/** Min samples for summary; balanced rule: downswing + (backswing or saw top). */
+const FULL_SWING_DOWN_SAMPLES = 3;
+const FULL_SWING_BACK_SAMPLES = 3;
+
+function isFullSwingForSummary() {
+  const d = state.pose.downswingLog.length;
+  const b = state.pose.backswingLog.length;
+  return d >= FULL_SWING_DOWN_SAMPLES
+    && (b >= FULL_SWING_BACK_SAMPLES || state.pose.sawTopThisSwing);
+}
+
 function triggerSwingSummary() {
-  // Require at least a few readings in each phase to avoid noise
-  if (state.pose.backswingLog.length < 3 && state.pose.downswingLog.length < 3) return;
+  if (!isFullSwingForSummary()) return;
   state.pose.swingCompleted = true;
   const backswing = dominantResult(state.pose.backswingLog);
   const downswing = dominantResult(state.pose.downswingLog);
@@ -1606,11 +1719,7 @@ function init() {
   el.btnHandLeft.addEventListener("click",   () => setHandedness("left"));
 
   if (el.btnRecalibrate) {
-    el.btnRecalibrate.addEventListener("click", () => {
-      state.pose.stableFrames = 0;
-      state.pose.planeLocked  = false;
-      setStatus("Re-calibrating — stand at address…");
-    });
+    el.btnRecalibrate.addEventListener("click", () => { void runRecalibrateCountdown(); });
   }
 
   el.fps.addEventListener("change", () => {

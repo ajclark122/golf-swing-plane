@@ -160,7 +160,7 @@ export function playReadyCue() {
     if (ctx.state === "suspended") void ctx.resume();
 
     const t0 = ctx.currentTime;
-    const vol = 0.085;
+    const vol = 0.18;
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();

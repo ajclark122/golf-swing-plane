@@ -1338,7 +1338,7 @@ async function runPoseInference() {
         state.pose.planeLocked = true;
         state.pose.planeLockHandsNorm = { x: handsNorm.x, y: handsNorm.y };
         state.pose.planeRelockStillSince = null;
-        if (!wasPlaneLocked) playReadyCue();
+        if (!wasPlaneLocked && state.view === "side") playReadyCue();
       }
     } else if (state.view === "side") {
       const ref = state.pose.planeLockHandsNorm;
@@ -1408,7 +1408,10 @@ async function runPoseInference() {
   }
 
   // ── Collect per-swing plane logs (after assessment so result is current) ──
-  if (state.view === "side" && state.pose.planeResult && state.pose.planeLevel !== null) {
+  // Use the same height gate as the original code to ensure hands have genuinely risen.
+  // Assessment display (wrist dot, badge) stays ungated; only logging is gated here.
+  const allowLog = handsAboveShoulder || pastSwingGate || earlyTakeawayOk;
+  if (state.view === "side" && allowLog && state.pose.planeResult && state.pose.planeLevel !== null) {
     if (newPhase === "backswing" || newPhase === "top") {
       state.pose.backswingLog.push(state.pose.planeResult);
       state.pose.backswingLevelLog.push(state.pose.planeLevel);
@@ -1489,9 +1492,10 @@ function detectPhase(handsNorm, timestamp) {
       }
     }
   } else {
-    // Low Y velocity but not vertically+horizontally stable — setup waggle, lateral drift, etc.
+    // Low Y velocity but not vertically+horizontally stable.
+    // Backswing→top transition is ok here (hands pausing at peak).
+    // address stays address; only upward velocity or the height gate may start a backswing.
     if (prev === "backswing") state.pose.phase = "top";
-    else if (prev === "address") state.pose.phase = "backswing";
   }
 }
 
@@ -1631,15 +1635,19 @@ function dominantLevel(log) {
   return best === undefined ? null : Number(best);
 }
 
-/** Min samples for summary; balanced rule: downswing + (backswing or saw top). */
-const FULL_SWING_DOWN_SAMPLES = 2;
-const FULL_SWING_BACK_SAMPLES = 2;
+/** Min samples for summary. A real swing at ~10 pose-fps yields 5–10 per half;
+ *  4 is safe even for fast swings while blocking 2–3 frame lateral-drift glitches. */
+const FULL_SWING_DOWN_SAMPLES = 4;
+const FULL_SWING_BACK_SAMPLES = 4;
 
 function isFullSwingForSummary() {
   const d = state.pose.downswingLog.length;
   const b = state.pose.backswingLog.length;
+  // sawTopThisSwing is mandatory: a real swing always passes through a velocity
+  // reversal at the top. This prevents lateral drift / waggle from qualifying.
   return d >= FULL_SWING_DOWN_SAMPLES
-    && (b >= FULL_SWING_BACK_SAMPLES || state.pose.sawTopThisSwing);
+    && b >= FULL_SWING_BACK_SAMPLES
+    && state.pose.sawTopThisSwing;
 }
 
 function triggerSwingSummary() {

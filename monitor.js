@@ -6,6 +6,7 @@ import {
   displayScale,
   glyphIsTriangle,
 } from "./plane-display.js";
+import { playSwingPing, primeSwingPingAudio } from "./swing-ping.js";
 
 // ── DOM refs ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,8 @@ function applySummary(msg) {
   el.downMeta.textContent = downLevel !== null && downLevel !== undefined
     ? displayPhrase(downPlane, downLevel)
     : "No reading";
+
+  playSwingPing();
 }
 
 /** @param {HTMLDivElement} iconEl tile `.monitorTileBig` wrapper */
@@ -281,6 +284,12 @@ async function copyAnswer() {
 
 function init() {
   showIdlePane();
+
+  document.addEventListener(
+    "pointerdown",
+    () => { void primeSwingPingAudio(); },
+    { once: true, capture: true, passive: true }
+  );
 
   // iOS releases the wake lock when the tab goes to background; re-apply when visible and still paired.
   document.addEventListener("visibilitychange", () => {

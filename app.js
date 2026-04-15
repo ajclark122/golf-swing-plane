@@ -1298,6 +1298,10 @@ async function runPoseInference() {
     if (prevPhase !== "top" && newPhase === "top") state.pose.sawTopThisSwing = true;
 
     if (newPhase === "address") {
+      // Snapshot the swing state before clearing logs (used by debug overlay).
+      if (prevPhase !== "address") {
+        captureSwingSnapshot(!state.pose.swingCompleted && isFullSwingForSummary());
+      }
       // Full swing only: summary + monitor summary message (not live plane flicker).
       if (!state.pose.swingCompleted && isFullSwingForSummary()) {
         triggerSwingSummary();
@@ -1830,39 +1834,95 @@ function renderAssessment() {
 // ── Swing-detection debug overlay ──────────────────────────────────────────
 let _swingDebugOn = false;
 
-/** Toggle the debug overlay on/off (called from the console or a button). */
+/** Frozen snapshot captured at end of each swing attempt (before log reset). */
+let _swingSnapshot = /** @type {Record<string,unknown>|null} */ (null);
+
+/** Toggle the debug overlay on/off. */
 function toggleSwingDebug() {
   _swingDebugOn = !_swingDebugOn;
   if (el.swingDebug) el.swingDebug.style.display = _swingDebugOn ? "block" : "none";
 }
-// Expose globally so it can be called from browser console
 /** @ts-ignore */
 window.toggleSwingDebug = toggleSwingDebug;
 
-/** Render swing detection state into the debug overlay (no-op when hidden). */
+/**
+ * Freeze a snapshot of the current swing state before logs are cleared.
+ * @param {boolean} summaryFired
+ */
+function captureSwingSnapshot(summaryFired) {
+  const p = state.pose;
+  _swingSnapshot = {
+    summaryFired,
+    backN:  p.backswingLog.length,
+    downN:  p.downswingLog.length,
+    sawTop: p.sawTopThisSwing,
+    locked: p.planeLocked,
+    addrX:  p.addressWristX,
+    addrY:  p.addressWristY,
+    bCons:  p.backswingConsecutiveFrames,
+    time:   new Date().toLocaleTimeString(),
+  };
+}
+
+/** Green/red coloured span based on pass flag. */
+function _dbOk(value, pass) {
+  return `<span style="color:${pass ? "#4eff91" : "#ff4d6d"};font-weight:900">${value}</span>`;
+}
+/** Yellow label. */
+function _dbL(t) { return `<span style="color:#ffe066">${t}</span>`; }
+/** Dim value. */
+function _dbV(t) { return `<span style="color:#ccc">${t}</span>`; }
+
+/** Render colour-coded live state + last-swing snapshot into the debug overlay. */
 function renderSwingDebug() {
   if (!_swingDebugOn || !el.swingDebug) return;
   const p = state.pose;
   const sp = state.swingPlaneLine.line;
-  // Recompute plane projection if references are set
-  let proj = "—";
+
+  // Plane projection from address
+  let projNum = null;
   if (p.addressWristX !== null && p.addressWristY !== null && p.lastWristNorm) {
     const pdx = sp.x1 - sp.x2, pdy = sp.y1 - sp.y2;
     const plen = Math.hypot(pdx, pdy);
     if (plen > 0.01) {
-      const raw = ((p.lastWristNorm.x - p.addressWristX) * pdx +
-                   (p.lastWristNorm.y - p.addressWristY) * pdy) / plen;
-      proj = raw.toFixed(3);
+      projNum = ((p.lastWristNorm.x - p.addressWristX) * pdx +
+                 (p.lastWristNorm.y - p.addressWristY) * pdy) / plen;
     }
   }
-  el.swingDebug.textContent = [
-    `phase:${p.phase} cons:${p.backswingConsecutiveFrames}`,
-    `back:${p.backswingLog.length}/${FULL_SWING_BACK_SAMPLES} down:${p.downswingLog.length}/${FULL_SWING_DOWN_SAMPLES}`,
-    `top:${p.sawTopThisSwing} lock:${p.planeLocked}`,
-    `aX:${p.addressWristX?.toFixed(3)??"null"} aY:${p.addressWristY?.toFixed(3)??"null"}`,
-    `proj:${proj} (>0.04=swing)`,
-    `gate:${p.swingStartGateNy?.toFixed(3)??"null"} sh:${p.shoulderNy?.toFixed(3)??"null"}`,
-  ].join("\n");
+  const projStr  = projNum !== null ? projNum.toFixed(3) : "—";
+  const projPass = projNum !== null && projNum > 0.04;
+
+  const backOk = p.backswingLog.length >= FULL_SWING_BACK_SAMPLES;
+  const downOk = p.downswingLog.length >= FULL_SWING_DOWN_SAMPLES;
+
+  const live = [
+    `${_dbL("── LIVE ──────────────────────")}`,
+    `${_dbL("phase")} ${_dbV(p.phase)}  ${_dbL("bCons")} ${_dbV(p.backswingConsecutiveFrames)}`,
+    `${_dbL("back")} ${_dbOk(`${p.backswingLog.length}/${FULL_SWING_BACK_SAMPLES}`, backOk)}  ${_dbL("down")} ${_dbOk(`${p.downswingLog.length}/${FULL_SWING_DOWN_SAMPLES}`, downOk)}`,
+    `${_dbL("sawTop")} ${_dbOk(p.sawTopThisSwing, p.sawTopThisSwing)}  ${_dbL("lock")} ${_dbOk(p.planeLocked, p.planeLocked)}`,
+    `${_dbL("addrX")} ${_dbOk(p.addressWristX?.toFixed(3) ?? "null", p.addressWristX !== null)}  ${_dbL("addrY")} ${_dbOk(p.addressWristY?.toFixed(3) ?? "null", p.addressWristY !== null)}`,
+    `${_dbL("proj")} ${_dbOk(projStr, projPass)}  ${_dbV("(>0.04 triggers)")}`,
+  ];
+
+  const snap = [
+    `${_dbL("── LAST SWING ────────────────")}`,
+  ];
+  if (_swingSnapshot) {
+    const s = _swingSnapshot;
+    const ok = /** @type {boolean} */ (s.summaryFired);
+    const sBackOk = Number(s.backN) >= Number(s.needBack ?? FULL_SWING_BACK_SAMPLES);
+    const sDownOk = Number(s.downN) >= Number(s.needDown ?? FULL_SWING_DOWN_SAMPLES);
+    snap.push(
+      `${_dbL("time")} ${_dbV(String(s.time))}  ${_dbOk(ok ? "SUMMARY ✓" : "MISSED ✗", ok)}`,
+      `${_dbL("back")} ${_dbOk(`${s.backN}/${FULL_SWING_BACK_SAMPLES}`, sBackOk)}  ${_dbL("down")} ${_dbOk(`${s.downN}/${FULL_SWING_DOWN_SAMPLES}`, sDownOk)}`,
+      `${_dbL("sawTop")} ${_dbOk(s.sawTop, Boolean(s.sawTop))}  ${_dbL("lock")} ${_dbOk(s.locked, Boolean(s.locked))}`,
+      `${_dbL("addrX")} ${_dbOk(s.addrX !== null ? Number(s.addrX).toFixed(3) : "null", s.addrX !== null)}  ${_dbL("addrY")} ${_dbOk(s.addrY !== null ? Number(s.addrY).toFixed(3) : "null", s.addrY !== null)}`,
+    );
+  } else {
+    snap.push(_dbV("(swing yet to complete)"));
+  }
+
+  el.swingDebug.innerHTML = [...live, ...snap].join("<br>");
 }
 
 /** Update the frame-fill guide badge. */

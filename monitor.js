@@ -1,4 +1,11 @@
 import { createPeerConnection, decodeSignal, encodeSignal, waitForIceGatheringComplete } from "./webrtc-signaling.js";
+import {
+  displayColor,
+  displayGlyph,
+  displayPhrase,
+  displayScale,
+  glyphIsTriangle,
+} from "./plane-display.js";
 
 // ── DOM refs ───────────────────────────────────────────────────────────────────
 
@@ -31,89 +38,105 @@ let dc = null;
 /** Encoded answer string, stored so Share and Copy both use the same value. */
 let answerEncoded = "";
 
+/** Screen Wake Lock while receiving swing data (iPad Safari 16.4+). */
+/** @type {WakeLockSentinel|null} */
+let screenWakeLock = null;
+
+async function acquireScreenWakeLock() {
+  const wl = navigator.wakeLock;
+  if (!wl?.request) return;
+  try {
+    if (screenWakeLock) return;
+    screenWakeLock = await wl.request("screen");
+    screenWakeLock.addEventListener("release", () => {
+      screenWakeLock = null;
+    });
+  } catch {
+    /* NotAllowedError (no user gesture / background tab), or unsupported */
+  }
+}
+
+function releaseScreenWakeLock() {
+  try {
+    screenWakeLock?.release();
+  } catch { /* ignore */ }
+  screenWakeLock = null;
+}
+
 // ── Status / tile helpers ──────────────────────────────────────────────────────
 
 function setStatus(msg) { el.status.textContent = msg; }
-
-function planeToIcon(plane) {
-  if (plane === "above") return "▲";
-  if (plane === "on")    return "●";
-  if (plane === "below") return "▽";
-  return "—";
-}
-
-function planeToLabel(plane) {
-  if (plane === "above") return "Above plane";
-  if (plane === "on")    return "On plane";
-  if (plane === "below") return "Below plane";
-  return "—";
-}
 
 function phaseToLabel(phase) {
   const m = { address: "Address", backswing: "Backswing", top: "Top", downswing: "Downswing", impact: "Impact" };
   return m[phase] || String(phase || "—");
 }
 
-/** Human label for 0..3 closeness (matches iPhone assessment). */
-function levelToCloseLabel(level) {
-  if (level === 0) return "On plane";
-  if (level === 1) return "Near plane";
-  if (level === 2) return "Off plane";
-  if (level === 3) return "Way off plane";
-  return "";
+/** @param {HTMLDivElement} tileBig */
+function setTileGlyph(tileBig, char) {
+  const g = tileBig.querySelector(".monitorTileGlyph");
+  if (g) g.textContent = char;
+  else tileBig.textContent = char;
 }
 
 function applyLiveUpdate(msg) {
   const plane = msg?.plane ?? null;
   const level = (msg?.level === 0 || msg?.level === 1 || msg?.level === 2 || msg?.level === 3) ? msg.level : null;
   styleIcon(el.liveIcon, plane, level);
-  el.liveIcon.textContent = planeToIcon(plane);
-  const close = levelToCloseLabel(level);
-  el.liveMeta.textContent = close
-    ? `${phaseToLabel(msg?.phase)} · ${planeToLabel(plane)} · ${close}`
-    : `${phaseToLabel(msg?.phase)} · ${planeToLabel(plane)}`;
+  setTileGlyph(el.liveIcon, displayGlyph(plane, level));
+  const phrase = level !== null && level !== undefined
+    ? displayPhrase(plane, level)
+    : "No reading";
+  el.liveMeta.textContent = `${phaseToLabel(msg?.phase)} · ${phrase}`;
 }
 
 function applySummary(msg) {
   const backPlane = msg?.backswingDominant ?? null;
   const backLevel = (msg?.backswingLevel === 0 || msg?.backswingLevel === 1 || msg?.backswingLevel === 2 || msg?.backswingLevel === 3) ? msg.backswingLevel : null;
   styleIcon(el.backIcon, backPlane, backLevel);
-  el.backIcon.textContent = planeToIcon(backPlane);
-  const backClose = levelToCloseLabel(backLevel);
-  el.backMeta.textContent = backClose ? `${planeToLabel(backPlane)} · ${backClose}` : planeToLabel(backPlane);
+  setTileGlyph(el.backIcon, displayGlyph(backPlane, backLevel));
+  el.backMeta.textContent = backLevel !== null && backLevel !== undefined
+    ? displayPhrase(backPlane, backLevel)
+    : "No reading";
 
   const downPlane = msg?.downswingDominant ?? null;
   const downLevel = (msg?.downswingLevel === 0 || msg?.downswingLevel === 1 || msg?.downswingLevel === 2 || msg?.downswingLevel === 3) ? msg.downswingLevel : null;
   styleIcon(el.downIcon, downPlane, downLevel);
-  el.downIcon.textContent = planeToIcon(downPlane);
-  const downClose = levelToCloseLabel(downLevel);
-  el.downMeta.textContent = downClose ? `${planeToLabel(downPlane)} · ${downClose}` : planeToLabel(downPlane);
+  setTileGlyph(el.downIcon, displayGlyph(downPlane, downLevel));
+  el.downMeta.textContent = downLevel !== null && downLevel !== undefined
+    ? displayPhrase(downPlane, downLevel)
+    : "No reading";
 }
 
+/** @param {HTMLDivElement} iconEl tile `.monitorTileBig` wrapper */
 function styleIcon(iconEl, plane, level) {
-  // Match the iPhone colors.
-  const color = plane === "above" ? "#ff6b85"
-    : plane === "below" ? "#6ab8ff"
-    : plane === "on"    ? "#5dff9e"
-    : "rgba(255,255,255,0.92)";
+  const glyph = iconEl.querySelector(".monitorTileGlyph");
+  const color = displayColor(plane, level);
   iconEl.style.color = color;
+  if (glyph) glyph.style.color = color;
 
-  // Dramatic 4-step scale (iPad has space — make “far from plane” unmistakable).
-  const scale = level === 0 ? 1.58
-    : level === 1 ? 1.18
-    : level === 2 ? 0.78
-    : level === 3 ? 0.48
-    : 1;
-  iconEl.style.transform = `scale(${scale})`;
+  const tri = glyphIsTriangle(plane, level);
+  const scale = displayScale(level, tri);
+  if (glyph) glyph.style.transform = `scale(${scale})`;
+  else iconEl.style.transform = `scale(${scale})`;
 }
 
 // ── WebRTC ─────────────────────────────────────────────────────────────────────
 
 function attachDataChannel(channel) {
   dc = channel;
-  dc.onopen    = () => setStatus("Paired — receiving data");
-  dc.onclose   = () => setStatus("Disconnected");
-  dc.onerror   = () => setStatus("Data channel error");
+  dc.onopen    = () => {
+    setStatus("Paired — receiving data");
+    void acquireScreenWakeLock();
+  };
+  dc.onclose   = () => {
+    releaseScreenWakeLock();
+    setStatus("Disconnected");
+  };
+  dc.onerror   = () => {
+    releaseScreenWakeLock();
+    setStatus("Data channel error");
+  };
   dc.onmessage = (e) => {
     try {
       const msg = JSON.parse(String(e.data));
@@ -128,14 +151,19 @@ function ensurePeer() {
   pc = createPeerConnection();
   pc.onconnectionstatechange = () => {
     const s = pc?.connectionState;
-    if (s === "connected")                      setStatus("Paired — receiving data");
-    else if (s === "disconnected" || s === "failed") setStatus("Disconnected");
+    if (s === "connected") {
+      setStatus("Paired — receiving data");
+    } else if (s === "disconnected" || s === "failed") {
+      releaseScreenWakeLock();
+      setStatus("Disconnected");
+    }
   };
   pc.ondatachannel = (ev) => attachDataChannel(ev.channel);
   return pc;
 }
 
 function resetAll() {
+  releaseScreenWakeLock();
   try { dc?.close(); } catch { /* ignore */ }
   try { pc?.close(); } catch { /* ignore */ }
   dc = null; pc = null;
@@ -143,7 +171,10 @@ function resetAll() {
   showIdlePane();
   setStatus("Not paired");
   el.offerText.value = "";
-  el.liveIcon.textContent = "—"; el.liveMeta.textContent = "Waiting…";
+  setTileGlyph(el.liveIcon, "—");
+  const liveG = el.liveIcon.querySelector(".monitorTileGlyph");
+  if (liveG) liveG.style.transform = "scale(1)";
+  el.liveMeta.textContent = "Waiting…";
 }
 
 // ── Pairing UI helpers ─────────────────────────────────────────────────────────
@@ -250,6 +281,13 @@ async function copyAnswer() {
 
 function init() {
   showIdlePane();
+
+  // iOS releases the wake lock when the tab goes to background; re-apply when visible and still paired.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && dc?.readyState === "open") {
+      void acquireScreenWakeLock();
+    }
+  });
 
   // Auto-process offer if the URL hash contains #o=… (opened via Share link from iPhone).
   const hash = location.hash;

@@ -657,11 +657,18 @@ body {
   justify-content: center;
   font-size: 38px;
   line-height: 1;
+  transform-origin: center;
   /* default (no data) */
   background: rgba(255, 255, 255, 0.06);
   border: 2px solid rgba(255, 255, 255, 0.14);
   color: rgba(255, 255, 255, 0.40);
-  transition: background 200ms ease, border-color 200ms ease;
+  transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+
+.sswPhaseCard.unknown .sswPhaseIcon.unknown {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .sswPhaseIcon.above {
@@ -782,17 +789,18 @@ body {
   line-height: 1.1;
 }
 
-.assessment.planeL0 { transform: scale(1.22); }
-.assessment.planeL0 .assessPlane { font-size: 18px; }
+/* Smaller badge when close to plane, larger when far (matches monitor glyph semantics). */
+.assessment.planeL0 { transform: scale(0.82); }
+.assessment.planeL0 .assessPlane { font-size: 11px; }
 
-.assessment.planeL1 { transform: scale(1.06); }
-.assessment.planeL1 .assessPlane { font-size: 15px; }
+.assessment.planeL1 { transform: scale(0.94); }
+.assessment.planeL1 .assessPlane { font-size: 12px; }
 
-.assessment.planeL2 { transform: scale(0.94); }
-.assessment.planeL2 .assessPlane { font-size: 12px; }
+.assessment.planeL2 { transform: scale(1.06); }
+.assessment.planeL2 .assessPlane { font-size: 15px; }
 
-.assessment.planeL3 { transform: scale(0.82); }
-.assessment.planeL3 .assessPlane { font-size: 11px; }
+.assessment.planeL3 { transform: scale(1.22); }
+.assessment.planeL3 .assessPlane { font-size: 18px; }
 
 /* ── Frame-fill guide — full-screen so it’s readable while taking stance ───── */
 
@@ -942,7 +950,11 @@ body {
   letter-spacing: -2px;
   line-height: 1;
   text-shadow: 0 14px 40px rgba(0,0,0,0.55);
-  transform: scale(1);
+  transition: color 160ms ease;
+}
+
+.monitorTileGlyph {
+  display: inline-block;
   transform-origin: center;
   transition: transform 200ms cubic-bezier(0.2, 0.85, 0.25, 1), color 160ms ease;
 }

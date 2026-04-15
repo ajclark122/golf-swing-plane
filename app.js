@@ -8,6 +8,8 @@
  *  - Above / on / below plane assessment with colored wrist dot + HUD badge
  */
 
+import { displayGlyph, displayPhrase, displayScale, glyphIsTriangle } from "./plane-display.js";
+
 const STORAGE_KEY_FRONT  = "golfcam.lines.front.v1";
 const STORAGE_KEY_SIDE   = "golfcam.lines.side.v1";
 const STORAGE_SWING_PLANE = "golfcam.swingplane.side.v1";
@@ -117,6 +119,10 @@ const state = {
     frameGuide:    /** @type {null|"step-back"|"step-closer"|"raise-club"} */ (null),
     shoulderNy:    /** @type {number|null} */ (null), // EMA-smoothed shoulder height at address
     planeLocked:   false, // true once the line has settled — won't move during swing
+    /** Wrist midpoint in overlay norm space when the plane last locked (stance-change detection). */
+    planeLockHandsNorm: /** @type {{x:number,y:number}|null} */ (null),
+    /** If set: first timestamp while locked+address+hands drifted from `planeLockHandsNorm`. */
+    planeRelockStillSince: /** @type {number|null} */ (null),
     /** True if we visited the "top" phase this swing (for full-swing summary gate). */
     sawTopThisSwing: false,
     /** Consecutive pose frames in backswing (for early takeaway plane gate). */
@@ -855,6 +861,8 @@ function setHandedness(h) {
   el.btnHandLeft.classList.toggle("active",  h === "left");
   state.pose.stableFrames = 0;
   state.pose.planeLocked  = false;
+  state.pose.planeLockHandsNorm = null;
+  state.pose.planeRelockStillSince = null;
 }
 
 // ── View toggle ───────────────────────────────────────────────────────────────
@@ -935,6 +943,8 @@ async function runRecalibrateCountdown() {
 
   state.pose.stableFrames = 0;
   state.pose.planeLocked  = false;
+  state.pose.planeLockHandsNorm = null;
+  state.pose.planeRelockStillSince = null;
   setStatus("Re-calibrating — stand at address…");
   state.ui.lastActiveAt = Date.now();
   setHudHidden(false);
@@ -1125,6 +1135,8 @@ function resetPoseState() {
   state.pose.swingCompleted = false;
   state.pose.shoulderNy     = null;
   state.pose.planeLocked    = false;
+  state.pose.planeLockHandsNorm = null;
+  state.pose.planeRelockStillSince = null;
   state.pose.recalibrateCountdown = false;
   state.pose.sawTopThisSwing = false;
   state.pose.backswingConsecutiveFrames = 0;
@@ -1295,13 +1307,36 @@ async function runPoseInference() {
 
   // ── Stable-frame counter, shoulder tracking + plane line proposal ────────────
   // The line updates while at address until it has settled (planeLocked = true).
-  // Once locked it won't move during the swing; recalibrate or club-change unlocks.
+  // Once locked it stays fixed during the swing; manual re-calibrate / club change unlocks.
+  // After a stance shift (hands drift from lock pose), ~2 s still at address re-unlocks so
+  // the line can snap to the new position without tapping re-calibrate.
   const LOCK_FRAMES = 15; // ~1.5 s at 10 pose-fps
+  const PLANE_RELOCK_STILL_MS = 2000;
+  const PLANE_LOCK_DRIFT_NORM = 0.012; // ~1.2% of frame — small stance / foot change still counts
   if (newPhase === "address") {
     state.pose.stableFrames++;
     if (!state.pose.planeLocked) {
       autoProposePlaneLine(kps);
-      if (state.pose.stableFrames >= LOCK_FRAMES) state.pose.planeLocked = true;
+      if (state.pose.stableFrames >= LOCK_FRAMES) {
+        state.pose.planeLocked = true;
+        state.pose.planeLockHandsNorm = { x: handsNorm.x, y: handsNorm.y };
+        state.pose.planeRelockStillSince = null;
+      }
+    } else if (state.view === "side") {
+      const ref = state.pose.planeLockHandsNorm;
+      const drift = ref ? Math.hypot(handsNorm.x - ref.x, handsNorm.y - ref.y) : 0;
+      if (drift > PLANE_LOCK_DRIFT_NORM) {
+        if (state.pose.planeRelockStillSince === null) state.pose.planeRelockStillSince = now;
+        else if (now - state.pose.planeRelockStillSince >= PLANE_RELOCK_STILL_MS) {
+          state.pose.planeLocked = false;
+          state.pose.stableFrames = 0;
+          state.pose.planeLockHandsNorm = null;
+          state.pose.planeRelockStillSince = null;
+          autoProposePlaneLine(kps);
+        }
+      } else {
+        state.pose.planeRelockStillSince = null;
+      }
     }
 
     // Track shoulder height so the assessment gate knows when hands pass shoulder level.
@@ -1317,6 +1352,7 @@ async function runPoseInference() {
     }
   } else {
     state.pose.stableFrames = 0;
+    state.pose.planeRelockStillSince = null;
   }
 
   // Swing start height: midpoint between address hands and shoulders (y increases downward).
@@ -1597,31 +1633,40 @@ function triggerSwingSummary() {
   const backswingLevel = dominantLevel(state.pose.backswingLevelLog);
   const downswingLevel = dominantLevel(state.pose.downswingLevelLog);
   monitorSendSummary(backswing, downswing, backswingLevel, downswingLevel);
-  showSwingSummary(backswing, downswing);
+  showSwingSummary(backswing, downswing, backswingLevel, downswingLevel);
 }
 
 /**
  * Show the 5-second post-swing summary overlay.
  * @param {"above"|"on"|"below"|null} backswing
  * @param {"above"|"on"|"below"|null} downswing
+ * @param {number|null} backswingLevel
+ * @param {number|null} downswingLevel
  */
-function showSwingSummary(backswing, downswing) {
+function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel) {
   if (!el.swingSummary) return;
   dismissSwingSummary(); // clear any running timer first
 
-  const meta = {
-    above:   { icon: "▲", label: "Above Plane" },
-    on:      { icon: "●", label: "On Plane"    },
-    below:   { icon: "▽", label: "Below Plane" },
-  };
-
-  const phaseCard = (title, result) => {
-    const r = result && meta[result] ? result : "unknown";
-    const m = meta[r] ?? { icon: "?", label: "No data" };
+  const phaseCard = (title, plane, level) => {
+    const has =
+      (plane === "above" || plane === "on" || plane === "below")
+      && (level === 0 || level === 1 || level === 2 || level === 3);
+    const r = plane === "above" || plane === "on" || plane === "below" ? plane : "unknown";
+    if (!has) {
+      return `<div class="sswPhaseCard unknown">
+      <div class="sswPhaseName">${title}</div>
+      <div class="sswPhaseIcon unknown">?</div>
+      <div class="sswPhaseResult">No data</div>
+    </div>`;
+    }
+    const icon = displayGlyph(plane, level);
+    const label = displayPhrase(plane, level);
+    const tri = glyphIsTriangle(plane, level);
+    const sc = displayScale(level, tri);
     return `<div class="sswPhaseCard ${r}">
       <div class="sswPhaseName">${title}</div>
-      <div class="sswPhaseIcon ${r}">${m.icon}</div>
-      <div class="sswPhaseResult">${m.label}</div>
+      <div class="sswPhaseIcon ${r}" style="transform: scale(${sc}); transform-origin: center">${icon}</div>
+      <div class="sswPhaseResult">${label}</div>
     </div>`;
   };
 
@@ -1629,9 +1674,9 @@ function showSwingSummary(backswing, downswing) {
     <div class="sswCard">
       <div class="sswTitle">Swing Analysis</div>
       <div class="sswRow">
-        ${phaseCard("Backswing", backswing)}
+        ${phaseCard("Backswing", backswing, backswingLevel)}
         <div class="sswDivider"></div>
-        ${phaseCard("Downswing", downswing)}
+        ${phaseCard("Downswing", downswing, downswingLevel)}
       </div>
       <div class="sswDismiss" id="sswDismissLabel">Tap to dismiss · 5s</div>
     </div>`;
@@ -1673,9 +1718,11 @@ function renderAssessment() {
 
   // ── Plane assessment ───────────────────────────────────────────────────────
   const phaseLabel = { address: "Address", backswing: "Backswing", top: "Top", downswing: "Downswing", impact: "Impact" }[state.pose.phase] ?? state.pose.phase;
-  const planeLabel = { above: "▲ Above", on: "● On plane", below: "▼ Below" }[state.pose.planeResult] ?? "—";
   const lv = state.pose.planeLevel;
-  const closeLabel = lv === 0 ? "On plane" : lv === 1 ? "Near plane" : lv === 2 ? "Off plane" : lv === 3 ? "Way off plane" : "";
+  const phrase =
+    (lv === 0 || lv === 1 || lv === 2 || lv === 3)
+      ? displayPhrase(state.pose.planeResult, lv)
+      : "No reading";
 
   el.assessment.classList.add("show");
   el.assessment.classList.toggle("above", state.pose.planeResult === "above");
@@ -1687,8 +1734,7 @@ function renderAssessment() {
   el.assessment.classList.toggle("planeL3", lv === 3);
   el.assessment.innerHTML =
     `<span class="assessPhase">${phaseLabel}</span>` +
-    `<span class="assessPlane">${planeLabel}</span>` +
-    (closeLabel ? `<span class="assessClose">${closeLabel}</span>` : "");
+    `<span class="assessPlane">${phrase}</span>`;
 }
 
 /** Update the frame-fill guide badge. */
@@ -1738,6 +1784,8 @@ function init() {
       try { localStorage.setItem(STORAGE_CLUB, state.selectedClub); } catch { /* ignore */ }
       state.pose.stableFrames = 0;
       state.pose.planeLocked  = false;
+      state.pose.planeLockHandsNorm = null;
+      state.pose.planeRelockStillSince = null;
     });
   }
 

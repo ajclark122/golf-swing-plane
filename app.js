@@ -25,6 +25,9 @@ const STORAGE_SWING_JOURNAL = "golfcam.swingJournal.v1";
 /** Max entries kept in localStorage and UI. */
 const SWING_JOURNAL_MAX = 5;
 
+/** Max plane samples stored per half on each journal row (for detail sheet). */
+const JOURNAL_LOG_CAP = 32;
+
 /**
  * @typedef {{
  *   t: string,
@@ -34,6 +37,8 @@ const SWING_JOURNAL_MAX = 5;
  *   backLv: number|null,
  *   downLv: number|null,
  *   worstLevel: number|null,
+ *   backLog?: string[],
+ *   downLog?: string[],
  * }} SwingJournalEntry
  */
 
@@ -194,6 +199,10 @@ const el = {
   swingJournalList:  /** @type {HTMLDivElement|null} */ (document.getElementById("swingJournalList")),
   swingJournalEmpty: /** @type {HTMLParagraphElement|null} */ (document.getElementById("swingJournalEmpty")),
   btnJournalClear:   /** @type {HTMLButtonElement|null} */ (document.getElementById("btnJournalClear")),
+  swingJournalTapHint: /** @type {HTMLParagraphElement|null} */ (document.getElementById("swingJournalTapHint")),
+  sjDetailRoot:      /** @type {HTMLDivElement|null} */ (document.getElementById("sjDetailRoot")),
+  sjDetailBody:      /** @type {HTMLDivElement|null} */ (document.getElementById("sjDetailBody")),
+  btnSjDetailClose:  /** @type {HTMLButtonElement|null} */ (document.getElementById("btnSjDetailClose")),
 
   // iPhone monitor pairing panel
   monitorPanel:         /** @type {HTMLDivElement} */ (document.getElementById("monitorPanel")),
@@ -232,6 +241,7 @@ function isSwingSummaryBlocked() {
 function suppressSwingOverlaysIfMenuShowing() {
   if (!isMenuShowing()) return;
   dismissSwingSummary();
+  closeSwingJournalDetail();
   renderAssessment();
   renderFrameGuide();
 }
@@ -1746,6 +1756,16 @@ function computeWorstLevel(/** @type {number|null} */ backLv, /** @type {number|
           : null;
 }
 
+/** @param {unknown} arr */
+function normalizePlaneLogSamples(arr) {
+  if (!Array.isArray(arr)) return /** @type {string[]} */ ([]);
+  const out = /** @type {string[]} */ ([]);
+  for (const v of arr) {
+    if (v === "above" || v === "on" || v === "below") out.push(v);
+  }
+  return out.slice(-JOURNAL_LOG_CAP);
+}
+
 function loadSwingJournal() {
   state.swingJournal = [];
   try {
@@ -1760,6 +1780,8 @@ function loadSwingJournal() {
       if (typeof t !== "string" || typeof club !== "string") continue;
       const pl = (/** @type {unknown} */ x) => (x === "above" || x === "on" || x === "below" ? /** @type {"above"|"on"|"below"} */ (x) : null);
       const lv = (/** @type {unknown} */ x) => (x === 0 || x === 1 || x === 2 || x === 3 ? x : null);
+      const bl = normalizePlaneLogSamples(rawE.backLog);
+      const dl = normalizePlaneLogSamples(rawE.downLog);
       state.swingJournal.push({
         t,
         club,
@@ -1768,6 +1790,8 @@ function loadSwingJournal() {
         backLv: lv(rawE.backLv),
         downLv: lv(rawE.downLv),
         worstLevel: lv(rawE.worstLevel),
+        ...(bl.length ? { backLog: bl } : {}),
+        ...(dl.length ? { downLog: dl } : {}),
       });
     }
     state.swingJournal = state.swingJournal.slice(0, SWING_JOURNAL_MAX);
@@ -1799,15 +1823,18 @@ function escapeHtmlShort(/** @type {string} */ s) {
 function renderSwingJournal() {
   const listEl = el.swingJournalList;
   const emptyEl = el.swingJournalEmpty;
+  const hintEl = el.swingJournalTapHint;
   if (!listEl || !emptyEl) return;
   const entries = state.swingJournal;
   if (!entries.length) {
     emptyEl.hidden = false;
+    if (hintEl) hintEl.hidden = true;
     listEl.innerHTML = "";
     return;
   }
   emptyEl.hidden = true;
-  listEl.innerHTML = entries.map((e) => {
+  if (hintEl) hintEl.hidden = false;
+  listEl.innerHTML = entries.map((e, i) => {
     let timeShort = "—";
     try {
       const d = new Date(e.t);
@@ -1824,12 +1851,77 @@ function renderSwingJournal() {
       e.down != null && e.downLv != null && (e.downLv === 0 || e.downLv === 1 || e.downLv === 2 || e.downLv === 3)
         ? displayPhrase(e.down, /** @type {0|1|2|3} */ (e.downLv))
         : "—";
-    return `<div class="sjRow">
+    return `<button type="button" class="sjRow" data-journal-idx="${i}" aria-label="Swing at ${timeShort}, detail">
       <div class="sjWhenClub"><span class="sjTime">${timeShort}</span><span class="sjClub">${escapeHtmlShort(clubLabel)}</span></div>
       <div class="sjHalf sjBack"><span class="sjTag">B</span><span class="sjPhrase">${escapeHtmlShort(backTxt)}</span></div>
       <div class="sjHalf sjDown"><span class="sjTag">D</span><span class="sjPhrase">${escapeHtmlShort(downTxt)}</span></div>
-    </div>`;
+    </button>`;
   }).join("");
+}
+
+/** One-word label for stance-distance overlay (icon carries severity). */
+function swingSummaryHeroWord(/** @type {"above"|"on"|"below"|null} */ plane, /** @type {number|null} */ level) {
+  if (!(plane === "above" || plane === "on" || plane === "below")) return "—";
+  if (!(level === 0 || level === 1 || level === 2 || level === 3)) return "—";
+  if (plane === "above") return "ABOVE";
+  if (plane === "below") return "BELOW";
+  return "ON";
+}
+
+function closeSwingJournalDetail() {
+  if (!el.sjDetailRoot) return;
+  el.sjDetailRoot.classList.remove("show");
+  el.sjDetailRoot.setAttribute("aria-hidden", "true");
+}
+
+/**
+ * @param {number} index into state.swingJournal (newest first)
+ */
+function openSwingJournalDetail(index) {
+  const entry = state.swingJournal[index];
+  if (!entry || !el.sjDetailRoot || !el.sjDetailBody) return;
+  el.sjDetailBody.innerHTML = buildJournalDetailHtml(entry);
+  el.sjDetailRoot.classList.add("show");
+  el.sjDetailRoot.setAttribute("aria-hidden", "false");
+  bumpUiActivity();
+}
+
+/** @param {SwingJournalEntry} entry */
+function buildJournalDetailHtml(entry) {
+  let timeLine = "—";
+  try {
+    const d = new Date(entry.t);
+    if (!Number.isNaN(d.getTime())) {
+      timeLine = d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+    }
+  } catch { /* ignore */ }
+  const clubLabel = CLUBS.find((c) => c.id === entry.club)?.label ?? entry.club;
+  const backPhrase =
+    entry.back != null && entry.backLv != null && (entry.backLv === 0 || entry.backLv === 1 || entry.backLv === 2 || entry.backLv === 3)
+      ? displayPhrase(entry.back, /** @type {0|1|2|3} */ (entry.backLv))
+      : "—";
+  const downPhrase =
+    entry.down != null && entry.downLv != null && (entry.downLv === 0 || entry.downLv === 1 || entry.downLv === 2 || entry.downLv === 3)
+      ? displayPhrase(entry.down, /** @type {0|1|2|3} */ (entry.downLv))
+      : "—";
+  const lines = swingTakeawayLines(entry.back, entry.down, entry.backLv, entry.downLv);
+  const takeawayHtml = lines.map((ln) => `<p class="sjDetailLine">${escapeHtmlShort(ln)}</p>`).join("");
+  const bl = entry.backLog ?? [];
+  const dl = entry.downLog ?? [];
+  const stripsBlock =
+    bl.length || dl.length
+      ? `<div class="sjDetailSection"><div class="sjDetailSectionTitle">Sample trail</div>${htmlSwingSampleStrips(bl, dl)}</div>`
+      : `<p class="sjDetailNote">Sample trail was not stored for this swing (older app version or empty log).</p>`;
+  return `
+    <div class="sjDetailMeta">${escapeHtmlShort(timeLine)} · ${escapeHtmlShort(clubLabel)}</div>
+    <div class="sjDetailSection">
+      <div class="sjDetailPhrases"><span><strong>Back</strong> — ${escapeHtmlShort(backPhrase)}</span><span><strong>Down</strong> — ${escapeHtmlShort(downPhrase)}</span></div>
+    </div>
+    <div class="sjDetailSection">
+      <div class="sjDetailSectionTitle">Notes</div>
+      <div class="sjDetailTakeaway">${takeawayHtml}</div>
+    </div>
+    ${stripsBlock}`;
 }
 
 /** Min samples for summary. A real swing at ~10 pose-fps yields 5–10 per half;
@@ -1859,6 +1951,8 @@ function triggerSwingSummary() {
   const backLog = [...state.pose.backswingLog];
   const downLog = [...state.pose.downswingLog];
 
+  const bl = normalizePlaneLogSamples(backLog);
+  const dl = normalizePlaneLogSamples(downLog);
   pushSwingJournalEntry({
     t: new Date().toISOString(),
     club: state.selectedClub,
@@ -1867,6 +1961,8 @@ function triggerSwingSummary() {
     backLv: backswingLevel,
     downLv: downswingLevel,
     worstLevel,
+    ...(bl.length ? { backLog: bl } : {}),
+    ...(dl.length ? { downLog: dl } : {}),
   });
 
   monitorSendSummary(backswing, downswing, backswingLevel, downswingLevel);
@@ -1886,49 +1982,41 @@ function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel, 
   if (!el.swingSummary) return;
   if (isSwingSummaryBlocked()) { dismissSwingSummary(); return; }
   dismissSwingSummary(); // clear any running timer first
+  closeSwingJournalDetail();
 
-  const backLog = opts?.backLog ?? [];
-  const downLog = opts?.downLog ?? [];
-  const takeawayLines = swingTakeawayLines(backswing, downswing, backswingLevel, downswingLevel);
-  const takeawayHtml = takeawayLines
-    .map((ln) => `<p class="sswTakeawayLine">${escapeHtmlShort(ln)}</p>`)
-    .join("");
-  const stripsHtml = htmlSwingSampleStrips(backLog, downLog);
+  void opts; // frame logs are stored on the journal entry when the swing completes
 
-  const phaseCard = (title, plane, level) => {
+  const phaseCardHero = (titleShort, plane, level) => {
     const has =
       (plane === "above" || plane === "on" || plane === "below")
       && (level === 0 || level === 1 || level === 2 || level === 3);
     const r = plane === "above" || plane === "on" || plane === "below" ? plane : "unknown";
     if (!has) {
       return `<div class="sswPhaseCard unknown">
-      <div class="sswPhaseName">${title}</div>
-      <div class="sswPhaseIcon unknown">?</div>
-      <div class="sswPhaseResult">No data</div>
+      <div class="sswPhaseName sswPhaseName--hero">${titleShort}</div>
+      <div class="sswPhaseIcon unknown sswPhaseIcon--hero">?</div>
+      <div class="sswPhaseBigWord unknown">—</div>
     </div>`;
     }
     const icon = displayGlyph(plane, level);
-    const label = displayPhrase(plane, level);
+    const word = swingSummaryHeroWord(plane, level);
     const tri = glyphIsTriangle(plane, level);
     const sc = displayScale(level, tri);
     return `<div class="sswPhaseCard ${r}">
-      <div class="sswPhaseName">${title}</div>
-      <div class="sswPhaseIcon ${r}" style="transform: scale(${sc}); transform-origin: center">${icon}</div>
-      <div class="sswPhaseResult">${label}</div>
+      <div class="sswPhaseName sswPhaseName--hero">${titleShort}</div>
+      <div class="sswPhaseIcon ${r} sswPhaseIcon--hero" style="transform: scale(${sc}); transform-origin: center">${icon}</div>
+      <div class="sswPhaseBigWord ${r}">${word}</div>
     </div>`;
   };
 
   el.swingSummary.innerHTML = `
-    <div class="sswCard">
-      <div class="sswTitle">Swing Analysis</div>
+    <div class="sswCard sswCard--hero">
       <div class="sswRow">
-        ${phaseCard("Backswing", backswing, backswingLevel)}
+        ${phaseCardHero("BACK", backswing, backswingLevel)}
         <div class="sswDivider"></div>
-        ${phaseCard("Downswing", downswing, downswingLevel)}
+        ${phaseCardHero("DOWN", downswing, downswingLevel)}
       </div>
-      <div class="sswTakeaway">${takeawayHtml}</div>
-      ${stripsHtml}
-      <div class="sswDismiss" id="sswDismissLabel">Tap to dismiss · 5s</div>
+      <div class="sswDismiss sswDismiss--hero" id="sswDismissLabel">TAP TO CLOSE · 5s</div>
     </div>`;
 
   el.swingSummary.classList.add("show");
@@ -1938,7 +2026,7 @@ function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel, 
   const tick = () => {
     remaining--;
     const label = el.swingSummary?.querySelector("#sswDismissLabel");
-    if (label) label.textContent = remaining > 0 ? `Tap to dismiss · ${remaining}s` : "";
+    if (label) label.textContent = remaining > 0 ? `TAP TO CLOSE · ${remaining}s` : "";
     if (remaining <= 0) { dismissSwingSummary(); return; }
     state.pose.summaryTimerHandle = setTimeout(tick, 1000);
   };
@@ -2160,11 +2248,44 @@ function init() {
     el.btnJournalClear.addEventListener("click", () => {
       state.swingJournal = [];
       try { localStorage.removeItem(STORAGE_SWING_JOURNAL); } catch { /* ignore */ }
+      closeSwingJournalDetail();
       renderSwingJournal();
       bumpUiActivity();
     });
   }
   renderSwingJournal();
+
+  if (el.swingJournalList) {
+    el.swingJournalList.addEventListener("click", (e) => {
+      const t = e.target;
+      const btn = t instanceof Element ? t.closest("[data-journal-idx]") : null;
+      if (!btn || !(btn instanceof HTMLElement) || !el.swingJournalList.contains(btn)) return;
+      const i = Number(btn.dataset.journalIdx);
+      if (!Number.isFinite(i) || i < 0) return;
+      openSwingJournalDetail(i);
+      bumpUiActivity();
+    });
+  }
+  if (el.btnSjDetailClose) {
+    el.btnSjDetailClose.addEventListener("click", () => {
+      closeSwingJournalDetail();
+      bumpUiActivity();
+    });
+  }
+  const sjBackdrop = document.getElementById("sjDetailBackdrop");
+  if (sjBackdrop) {
+    sjBackdrop.addEventListener("click", () => {
+      closeSwingJournalDetail();
+      bumpUiActivity();
+    });
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (el.sjDetailRoot?.classList.contains("show")) {
+      closeSwingJournalDetail();
+      bumpUiActivity();
+    }
+  });
 
   el.btnStartStop.addEventListener("click",  () => (state.ready ? stopCamera() : startCamera()));
   el.btnAdd.addEventListener("click",        () => addLine());

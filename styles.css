@@ -715,6 +715,50 @@ body {
   min-height: 1em;
 }
 
+/* Stance-distance overlay: large glyphs + short words only */
+.sswCard--hero {
+  width: min(440px, 100%);
+  padding: 28px 16px 22px;
+}
+
+.sswCard--hero .sswRow {
+  align-items: stretch;
+}
+
+.sswPhaseName--hero {
+  font-size: clamp(17px, 5.2vw, 22px);
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.sswPhaseIcon--hero {
+  width: clamp(96px, 28vw, 128px);
+  height: clamp(96px, 28vw, 128px);
+  font-size: clamp(46px, 13vw, 62px);
+}
+
+.sswPhaseBigWord {
+  font-size: clamp(28px, 8.5vw, 40px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-align: center;
+  line-height: 1;
+}
+
+.sswPhaseBigWord.above { color: #ff6b85; }
+.sswPhaseBigWord.on    { color: #5dff9e; }
+.sswPhaseBigWord.below { color: #6ab8ff; }
+.sswPhaseBigWord.unknown { color: rgba(255, 255, 255, 0.35); }
+
+.sswDismiss--hero {
+  font-size: clamp(14px, 3.8vw, 18px);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.48);
+  margin-top: 22px;
+}
+
 .sswTakeaway {
   margin-top: 12px;
   padding-top: 10px;
@@ -844,6 +888,17 @@ body {
   display: none;
 }
 
+.sjTapHint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.sjTapHint[hidden] {
+  display: none;
+}
+
 .sjList {
   display: flex;
   flex-direction: column;
@@ -853,16 +908,28 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-.sjRow {
+button.sjRow {
   display: grid;
   grid-template-columns: minmax(52px, 0.35fr) 1fr 1fr;
   gap: 6px 8px;
   align-items: center;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 12px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 11px;
+  width: 100%;
+  margin: 0;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+button.sjRow:active {
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .sjWhenClub {
@@ -902,6 +969,134 @@ body {
   color: rgba(255, 255, 255, 0.72);
   line-height: 1.2;
   min-width: 0;
+}
+
+/* ── Swing journal detail (tap a row) ─────────────────────────────────────── */
+
+.sjDetailRoot {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.sjDetailRoot.show {
+  display: flex;
+}
+
+.sjDetailBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.sjDetailCard {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 400px);
+  max-height: min(74vh, 580px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, rgba(16, 18, 26, 0.98) 0%, rgba(10, 12, 18, 0.97) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  padding: 14px 16px 18px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+}
+
+.sjDetailTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sjDetailHeading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.sjDetailClose {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sjDetailBody {
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.sjDetailMeta {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.52);
+  margin-bottom: 12px;
+}
+
+.sjDetailSection {
+  margin-bottom: 14px;
+}
+
+.sjDetailSection:last-child {
+  margin-bottom: 0;
+}
+
+.sjDetailSectionTitle {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+  margin-bottom: 8px;
+}
+
+.sjDetailPhrases {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sjDetailPhrases span {
+  display: block;
+}
+
+.sjDetailTakeaway .sjDetailLine {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.sjDetailTakeaway .sjDetailLine:last-child {
+  margin-bottom: 0;
+}
+
+.sjDetailNote {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.sjDetailBody .sswDot {
+  width: 9px;
+  height: 9px;
 }
 
 /* ── Assessment badge ─────────────────────────────────────────────────────── */

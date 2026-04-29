@@ -90,6 +90,7 @@
                 <button type="button" id="btnJournalClear" class="btn small sjClear" aria-label="Clear swing history">Clear</button>
               </div>
               <p class="sjEmpty" id="swingJournalEmpty">Complete a side-view swing to build history.</p>
+              <p class="sjTapHint" id="swingJournalTapHint" hidden>Tap a row for notes and sample trail.</p>
               <div class="sjList" id="swingJournalList" aria-live="polite"></div>
             </div>
 
@@ -174,6 +175,18 @@
 
         <!-- Post-swing summary overlay (auto-dismisses after 5 s) -->
         <div id="swingSummary" class="swingSummary" role="dialog" aria-live="assertive" aria-atomic="true"></div>
+
+        <!-- Tap a Last swings row — full notes (not shown at stance distance on live overlay) -->
+        <div id="sjDetailRoot" class="sjDetailRoot" aria-hidden="true">
+          <div class="sjDetailBackdrop" id="sjDetailBackdrop"></div>
+          <div class="sjDetailCard" role="dialog" aria-modal="true" aria-labelledby="sjDetailHeading">
+            <div class="sjDetailTop">
+              <h2 class="sjDetailHeading" id="sjDetailHeading">Swing detail</h2>
+              <button type="button" id="btnSjDetailClose" class="sjDetailClose" aria-label="Close">×</button>
+            </div>
+            <div id="sjDetailBody" class="sjDetailBody"></div>
+          </div>
+        </div>
 
         <div class="help" id="help">
           <div class="helpCard">

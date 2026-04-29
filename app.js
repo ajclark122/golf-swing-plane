@@ -222,6 +222,13 @@ function isMenuShowing() {
   return Boolean(state.ui.drawerOpen || monitorOpen || helpOpen);
 }
 
+/** Help / iPad pairing only — drawer can stay open (e.g. Last swings) without blocking summary + journal. */
+function isSwingSummaryBlocked() {
+  const monitorOpen = el.monitorPanel?.classList.contains("show") ?? false;
+  const helpOpen    = el.help?.classList.contains("show") ?? false;
+  return Boolean(monitorOpen || helpOpen);
+}
+
 function suppressSwingOverlaysIfMenuShowing() {
   if (!isMenuShowing()) return;
   dismissSwingSummary();
@@ -1842,7 +1849,7 @@ function isFullSwingForSummary() {
 
 function triggerSwingSummary() {
   if (!isFullSwingForSummary()) return;
-  if (isMenuShowing()) return;
+  if (isSwingSummaryBlocked()) return;
   state.pose.swingCompleted = true;
   const backswing = dominantResult(state.pose.backswingLog);
   const downswing = dominantResult(state.pose.downswingLog);
@@ -1877,7 +1884,7 @@ function triggerSwingSummary() {
  */
 function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel, opts) {
   if (!el.swingSummary) return;
-  if (isMenuShowing()) { dismissSwingSummary(); return; }
+  if (isSwingSummaryBlocked()) { dismissSwingSummary(); return; }
   dismissSwingSummary(); // clear any running timer first
 
   const backLog = opts?.backLog ?? [];

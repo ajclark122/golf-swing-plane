@@ -238,6 +238,16 @@ function isSwingSummaryBlocked() {
   return Boolean(monitorOpen || helpOpen);
 }
 
+/**
+ * No pose-driven phase, plane logs, or swing summaries while the swing view is obscured:
+ * bottom drawer expanded, swing journal detail sheet, Help, or iPad pairing.
+ * Only swings with the dock collapsed (full camera) are analyzed.
+ */
+function isSwingInteractionSuspended() {
+  const detailOpen = el.sjDetailRoot?.classList.contains("show") ?? false;
+  return detailOpen || isMenuShowing();
+}
+
 function suppressSwingOverlaysIfMenuShowing() {
   if (!isMenuShowing()) return;
   dismissSwingSummary();
@@ -834,7 +844,7 @@ async function startCamera() {
     render();
 
     bumpUiActivity();
-    setDrawerOpen(true); // reveal controls briefly so user sees live state
+    setDrawerOpen(false); // full swing view; tracking runs only with dock collapsed
     if (!localStorage.getItem(STORAGE_HELP)) el.help.classList.add("show");
 
     initPose(); // silently no-ops if TF.js didn't load
@@ -1260,8 +1270,9 @@ function poseLoop() {
 async function runPoseInference() {
   if (!state.pose.detector || !state.ready) return;
   if (!el.video.videoWidth || !el.video.videoHeight) return;
+  if (isSwingInteractionSuspended()) return;
 
-  // Always run inference (not only Side view) so phase resets cleanly on view switch.
+  // Runs when camera is live and no modal/menu is blocking — keeps phase and swing logs honest.
   const poses = await state.pose.detector.estimatePoses(el.video, { flipHorizontal: false });
   const now   = Date.now();
 

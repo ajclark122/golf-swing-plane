@@ -10,6 +10,7 @@
 
 import { displayGlyph, displayPhrase, displayScale, glyphIsTriangle } from "./plane-display.js";
 import { playReadyCue, playSwingSummarySound, primeSwingPingAudio } from "./swing-ping.js";
+import { swingTakeawayLines, htmlSwingSampleStrips } from "./swing-takeaway.js";
 
 /** Set true to show the swing-detection debug overlay on startup. */
 const SWING_DEBUG = false;
@@ -20,6 +21,21 @@ const STORAGE_SWING_PLANE = "golfcam.swingplane.side.v1";
 const STORAGE_UI   = "golfcam.ui.v1";
 const STORAGE_HELP = "golfcam.helpDismissed";
 const STORAGE_CLUB = "golfcam.club.v1";
+const STORAGE_SWING_JOURNAL = "golfcam.swingJournal.v1";
+/** Max entries kept in localStorage and UI. */
+const SWING_JOURNAL_MAX = 5;
+
+/**
+ * @typedef {{
+ *   t: string,
+ *   club: string,
+ *   back: "above"|"on"|"below"|null,
+ *   down: "above"|"on"|"below"|null,
+ *   backLv: number|null,
+ *   downLv: number|null,
+ *   worstLevel: number|null,
+ * }} SwingJournalEntry
+ */
 
 /** Color used for the dedicated swing-plane line. */
 const SWING_PLANE_COLOR = "#ffd44d";
@@ -69,6 +85,9 @@ const state = {
   view:          /** @type {"front"|"side"} */ ("front"),
   handedness:    /** @type {"right"|"left"} */ ("right"),
   selectedClub:  "7i", // persisted via STORAGE_CLUB
+
+  /** Newest first; mirrored to STORAGE_SWING_JOURNAL (max SWING_JOURNAL_MAX). */
+  swingJournal:  /** @type {SwingJournalEntry[]} */ ([]),
 
   recording: {
     active:          false,
@@ -172,6 +191,9 @@ const el = {
   clubSelect:     /** @type {HTMLSelectElement} */ (document.getElementById("clubSelect")),
   hudHandle:      /** @type {HTMLDivElement}    */ (document.getElementById("hudHandle")),
   swingSummary:   /** @type {HTMLDivElement}    */ (document.getElementById("swingSummary")),
+  swingJournalList:  /** @type {HTMLDivElement|null} */ (document.getElementById("swingJournalList")),
+  swingJournalEmpty: /** @type {HTMLParagraphElement|null} */ (document.getElementById("swingJournalEmpty")),
+  btnJournalClear:   /** @type {HTMLButtonElement|null} */ (document.getElementById("btnJournalClear")),
 
   // iPhone monitor pairing panel
   monitorPanel:         /** @type {HTMLDivElement} */ (document.getElementById("monitorPanel")),
@@ -765,7 +787,12 @@ function setStartStopState(running) {
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    setStatus("Camera not supported in this browser.");
+    // iOS WebKit omits `mediaDevices` on non-secure origins (e.g. http://LAN_IP) — not a "bad browser".
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      setStatus("Camera needs HTTPS (or localhost). Plain http:// on Wi‑Fi hides the camera API on iPhone — use GitHub Pages or a tunnel.");
+    } else {
+      setStatus("Camera not supported in this browser.");
+    }
     return;
   }
   try {
@@ -1703,6 +1730,101 @@ function dominantLevel(log) {
   return best === undefined ? null : Number(best);
 }
 
+/** Same band priority as swing summary sound. */
+function computeWorstLevel(/** @type {number|null} */ backLv, /** @type {number|null} */ downLv) {
+  return backLv === 3 || downLv === 3 ? 3
+    : backLv === 2 || downLv === 2 ? 2
+      : backLv === 1 || downLv === 1 ? 1
+        : backLv === 0 || downLv === 0 ? 0
+          : null;
+}
+
+function loadSwingJournal() {
+  state.swingJournal = [];
+  try {
+    const raw = localStorage.getItem(STORAGE_SWING_JOURNAL);
+    if (!raw) return;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return;
+    for (const rawE of arr) {
+      if (!rawE || typeof rawE !== "object") continue;
+      const t = rawE.t;
+      const club = rawE.club;
+      if (typeof t !== "string" || typeof club !== "string") continue;
+      const pl = (/** @type {unknown} */ x) => (x === "above" || x === "on" || x === "below" ? /** @type {"above"|"on"|"below"} */ (x) : null);
+      const lv = (/** @type {unknown} */ x) => (x === 0 || x === 1 || x === 2 || x === 3 ? x : null);
+      state.swingJournal.push({
+        t,
+        club,
+        back: pl(rawE.back),
+        down: pl(rawE.down),
+        backLv: lv(rawE.backLv),
+        downLv: lv(rawE.downLv),
+        worstLevel: lv(rawE.worstLevel),
+      });
+    }
+    state.swingJournal = state.swingJournal.slice(0, SWING_JOURNAL_MAX);
+  } catch { /* ignore */ }
+}
+
+function persistSwingJournal() {
+  try {
+    localStorage.setItem(STORAGE_SWING_JOURNAL, JSON.stringify(state.swingJournal.slice(0, SWING_JOURNAL_MAX)));
+  } catch { /* ignore */ }
+}
+
+function pushSwingJournalEntry(/** @type {SwingJournalEntry} */ entry) {
+  state.swingJournal.unshift(entry);
+  state.swingJournal = state.swingJournal.slice(0, SWING_JOURNAL_MAX);
+  persistSwingJournal();
+  renderSwingJournal();
+}
+
+/** Escape text embedded in innerHTML templates. */
+function escapeHtmlShort(/** @type {string} */ s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderSwingJournal() {
+  const listEl = el.swingJournalList;
+  const emptyEl = el.swingJournalEmpty;
+  if (!listEl || !emptyEl) return;
+  const entries = state.swingJournal;
+  if (!entries.length) {
+    emptyEl.hidden = false;
+    listEl.innerHTML = "";
+    return;
+  }
+  emptyEl.hidden = true;
+  listEl.innerHTML = entries.map((e) => {
+    let timeShort = "—";
+    try {
+      const d = new Date(e.t);
+      if (!Number.isNaN(d.getTime())) {
+        timeShort = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+    } catch { /* ignore */ }
+    const clubLabel = CLUBS.find((c) => c.id === e.club)?.label ?? e.club;
+    const backTxt =
+      e.back != null && e.backLv != null && (e.backLv === 0 || e.backLv === 1 || e.backLv === 2 || e.backLv === 3)
+        ? displayPhrase(e.back, /** @type {0|1|2|3} */ (e.backLv))
+        : "—";
+    const downTxt =
+      e.down != null && e.downLv != null && (e.downLv === 0 || e.downLv === 1 || e.downLv === 2 || e.downLv === 3)
+        ? displayPhrase(e.down, /** @type {0|1|2|3} */ (e.downLv))
+        : "—";
+    return `<div class="sjRow">
+      <div class="sjWhenClub"><span class="sjTime">${timeShort}</span><span class="sjClub">${escapeHtmlShort(clubLabel)}</span></div>
+      <div class="sjHalf sjBack"><span class="sjTag">B</span><span class="sjPhrase">${escapeHtmlShort(backTxt)}</span></div>
+      <div class="sjHalf sjDown"><span class="sjTag">D</span><span class="sjPhrase">${escapeHtmlShort(downTxt)}</span></div>
+    </div>`;
+  }).join("");
+}
+
 /** Min samples for summary. A real swing at ~10 pose-fps yields 5–10 per half;
  *  4 is safe even for fast swings while blocking 2–3 frame lateral-drift glitches. */
 const FULL_SWING_DOWN_SAMPLES = 2;
@@ -1726,14 +1848,22 @@ function triggerSwingSummary() {
   const downswing = dominantResult(state.pose.downswingLog);
   const backswingLevel = dominantLevel(state.pose.backswingLevelLog);
   const downswingLevel = dominantLevel(state.pose.downswingLevelLog);
+  const worstLevel = computeWorstLevel(backswingLevel, downswingLevel);
+  const backLog = [...state.pose.backswingLog];
+  const downLog = [...state.pose.downswingLog];
+
+  pushSwingJournalEntry({
+    t: new Date().toISOString(),
+    club: state.selectedClub,
+    back: backswing,
+    down: downswing,
+    backLv: backswingLevel,
+    downLv: downswingLevel,
+    worstLevel,
+  });
+
   monitorSendSummary(backswing, downswing, backswingLevel, downswingLevel);
-  showSwingSummary(backswing, downswing, backswingLevel, downswingLevel);
-  const worstLevel =
-    backswingLevel === 3 || downswingLevel === 3 ? 3
-      : backswingLevel === 2 || downswingLevel === 2 ? 2
-        : backswingLevel === 1 || downswingLevel === 1 ? 1
-          : backswingLevel === 0 || downswingLevel === 0 ? 0
-            : null;
+  showSwingSummary(backswing, downswing, backswingLevel, downswingLevel, { backLog, downLog });
   playSwingSummarySound({ worstLevel });
 }
 
@@ -1743,11 +1873,20 @@ function triggerSwingSummary() {
  * @param {"above"|"on"|"below"|null} downswing
  * @param {number|null} backswingLevel
  * @param {number|null} downswingLevel
+ * @param {{ backLog?: string[]; downLog?: string[] }} [opts]
  */
-function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel) {
+function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel, opts) {
   if (!el.swingSummary) return;
   if (isMenuShowing()) { dismissSwingSummary(); return; }
   dismissSwingSummary(); // clear any running timer first
+
+  const backLog = opts?.backLog ?? [];
+  const downLog = opts?.downLog ?? [];
+  const takeawayLines = swingTakeawayLines(backswing, downswing, backswingLevel, downswingLevel);
+  const takeawayHtml = takeawayLines
+    .map((ln) => `<p class="sswTakeawayLine">${escapeHtmlShort(ln)}</p>`)
+    .join("");
+  const stripsHtml = htmlSwingSampleStrips(backLog, downLog);
 
   const phaseCard = (title, plane, level) => {
     const has =
@@ -1780,6 +1919,8 @@ function showSwingSummary(backswing, downswing, backswingLevel, downswingLevel) 
         <div class="sswDivider"></div>
         ${phaseCard("Downswing", downswing, downswingLevel)}
       </div>
+      <div class="sswTakeaway">${takeawayHtml}</div>
+      ${stripsHtml}
       <div class="sswDismiss" id="sswDismissLabel">Tap to dismiss · 5s</div>
     </div>`;
 
@@ -1970,6 +2111,8 @@ function init() {
     if (saved && CLUBS.some((c) => c.id === saved)) state.selectedClub = saved;
   } catch { /* ignore */ }
 
+  loadSwingJournal();
+
   // Populate club selector from CLUBS array
   if (el.clubSelect) {
     CLUBS.forEach((club) => {
@@ -2005,6 +2148,16 @@ function init() {
   );
 
   if (SWING_DEBUG) toggleSwingDebug();
+
+  if (el.btnJournalClear) {
+    el.btnJournalClear.addEventListener("click", () => {
+      state.swingJournal = [];
+      try { localStorage.removeItem(STORAGE_SWING_JOURNAL); } catch { /* ignore */ }
+      renderSwingJournal();
+      bumpUiActivity();
+    });
+  }
+  renderSwingJournal();
 
   el.btnStartStop.addEventListener("click",  () => (state.ready ? stopCamera() : startCamera()));
   el.btnAdd.addEventListener("click",        () => addLine());

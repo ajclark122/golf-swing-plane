@@ -84,6 +84,15 @@
               <select id="clubSelect" class="select clubSelect" aria-label="Select club"></select>
             </div>
 
+            <div class="group swingJournal" id="swingJournal">
+              <div class="sjHead">
+                <span class="sjTitle">Last swings</span>
+                <button type="button" id="btnJournalClear" class="btn small sjClear" aria-label="Clear swing history">Clear</button>
+              </div>
+              <p class="sjEmpty" id="swingJournalEmpty">Complete a side-view swing to build history.</p>
+              <div class="sjList" id="swingJournalList" aria-live="polite"></div>
+            </div>
+
             <!-- Row 3: line management tools -->
             <div class="group row3a">
               <button id="btnAdd" class="btn iconOnly" type="button" disabled aria-label="Add line">
